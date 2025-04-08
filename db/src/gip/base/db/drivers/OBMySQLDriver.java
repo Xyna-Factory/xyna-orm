@@ -130,7 +130,7 @@ public class OBMySQLDriver implements OBDriverInterface {
 
 
   /**
-   * Liefert die JDBC-Version zurück.
+   * Liefert die JDBC-Version zurueck.
    * @param context
    * @return JDBC-Version
    * @throws OBException

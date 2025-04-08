@@ -81,7 +81,7 @@ public class StringDTO extends OBDTO implements OBDTOInterface {
 
   
   /**
-   * Liefert die Länge des enthaltenen Wertes.
+   * Liefert die Laenge des enthaltenen Wertes.
    * @return String-Laenge
    */
   public int length() {

@@ -25,7 +25,7 @@ import java.io.Serializable;
 import java.util.HashMap;
 
 /**
- * DecisionContainer ist ein Datenkontainer für Callbacks vom Server an den Client. 
+ * DecisionContainer ist ein Datenkontainer fuer Callbacks vom Server an den Client. 
  * Clientseitig wird dann dieser Datenkontainer grafisch aufbereitet.
  */
 @SuppressWarnings("serial")
@@ -255,7 +255,7 @@ public class DecisionContainer implements OBDTOInterface, Serializable {
   
   /**
    * Liefert die expliziet gesetzte GUI-DefaultAnswer,
-   * falls dieser nicht gesetzt ist, die primären DefaultAnswer.
+   * falls dieser nicht gesetzt ist, die primaeren DefaultAnswer.
    * @return Default fuer GUI
    */
   public boolean getDefaultAnswerGUI() {
@@ -270,7 +270,7 @@ public class DecisionContainer implements OBDTOInterface, Serializable {
 
   /**
    * Liefert die expliziet gesetzte GUI-DefaultAnswer,
-   * falls dieser nicht gesetzt ist, die primären DefaultAnswer.
+   * falls dieser nicht gesetzt ist, die primaeren DefaultAnswer.
    * @return Default fuer GUI
    */
   public String getDefaultAnswerStringGUI() {

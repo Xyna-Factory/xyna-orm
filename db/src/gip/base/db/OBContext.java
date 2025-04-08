@@ -28,8 +28,8 @@ import gip.base.common.OBException;
 import gip.base.db.drivers.OBDriverInterface;
 
 /**
- * Allgemeingültiger Context für eine Session
- * für die Basis-Klassen.
+ * Allgemeingueltiger Context fuer eine Session
+ * fuer die Basis-Klassen.
  */
 public class OBContext implements OBContextInterface {
   
@@ -239,7 +239,7 @@ public class OBContext implements OBContextInterface {
   }
 
   /**
-   * Der Session-Identifier ist eine eindeutige ID für die angemeldete Session. 
+   * Der Session-Identifier ist eine eindeutige ID fuer die angemeldete Session. 
    * @return Session-Identifier
    */
   public String getSessionIdentifier() {
@@ -247,7 +247,7 @@ public class OBContext implements OBContextInterface {
   }
   
   /**
-   * Setzen der Session-Identifier (eindeutige ID für die angemeldete Session.) 
+   * Setzen der Session-Identifier (eindeutige ID fuer die angemeldete Session.) 
    * @param sessionId Session-Identifier
    */
   public void setSessionIdentifier(String sessionId) {
