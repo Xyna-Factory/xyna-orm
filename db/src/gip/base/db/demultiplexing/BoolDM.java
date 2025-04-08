@@ -6,13 +6,6 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * Hechtsheimer Str. 35-37
- * 55131 Mainz
- *----------------------------------------------------
- * $Revision: 313501 $
- * $Date: 2022-08-25 15:50:41 +0200 (Do, 25 Aug 2022) $
- * $Name: $
- *----------------------------------------------------
  *  http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software

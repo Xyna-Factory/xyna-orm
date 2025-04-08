@@ -15,26 +15,6 @@
  * limitations under the License.
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 -->
-<!-- 
- ******************************************************************************
- * (c) GIP Oryx Informationstechnologie GmbH
- *     Goettelmannstrasse 17
- *     55130 Mainz
- *
- * Beschreibung:
- *  Transformations-xsl zur Generierung CREATE VIEW Statements
- *
- * Aenderungen:
- *  $Unit: Refactoring 2a planned $
- *
- *
- * Version Control Information:
- * $Source$
- * $Revision: 31049 $
- * $Date: 2008-10-31 16:16:49 +0100 (Fr, 31 Okt 2008) $
- * $Name$
- ******************************************************************************
--->
 <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">
 <xsl:output method="text" encoding="iso-8859-1" />
 <xsl:template match="DBObject"><xsl:text>
