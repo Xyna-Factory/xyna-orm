@@ -535,7 +535,7 @@ public abstract class OBDBObject extends OBObject  {
       Kann im update benutzt werden, um die alten Werte des zu aendernden Objektes zu bekommen.
       Die Tabelle, aus der das Objekt gelesen wird, ergibt sich aus dem tableName von this
    * @param context
-   * @return Das Objektz, wie es in der DB steht
+   * @return Das Objekt, wie es in der DB steht
    * @throws OBException
   */
   public OBObject getObjectFromDB(OBContext context) throws OBException {
@@ -1129,7 +1129,7 @@ public abstract class OBDBObject extends OBObject  {
   
   /**
    * Liefert die SQL-Technisch korrekte Substitution, um einen Anfangsbuchsteben in A-Z zu erhalten
-   * @param nameGroupByAttr Apalte, deren Anfangsbuchstabe gesucht wird
+   * @param nameGroupByAttr Spalte, deren Anfangsbuchstabe gesucht wird
    * @return Komplizierten sql-Teilstring.
    */
   public static String getFirstLetterSQL(String nameGroupByAttr) {
