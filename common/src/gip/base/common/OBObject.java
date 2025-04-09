@@ -94,7 +94,7 @@ public abstract class OBDBObject extends OBObject  {
   /** Suche nach einem Objekt mit Hilfe des Primaerschluessels
    * @param context
       @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param pk Prim&auml;rschl&uuml;sselwert
+      @param pk Primaerschluesselwert
       @param hint Hint an den Optimizer
       @return Das gefundene Objekt
    * @throws OBException
@@ -212,10 +212,10 @@ public abstract class OBDBObject extends OBObject  {
   /** Suche nach mehreren Objekten mit Hilfe der PKs und einer Ordnungsbedingung
       @param context Durchzureichendes Context-Objekt
       @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param pks ARRAY der Prim&auml;rschl&uuml;ssel
+      @param pks ARRAY der Primaerschluessel
       @param orderBy Ordnungsbedingung, muss mit ORDER BY beginnen
       @param hint Hint an den Optimizer
-      @return List-Objekt, das die gefundenen Objekte enth&auml;lt
+      @return List-Objekt, das die gefundenen Objekte enthaelt
       @throws OBException Auftretende SQL-Exceptions
   */
   public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
@@ -272,7 +272,7 @@ public abstract class OBDBObject extends OBObject  {
       @param context Durchzureichendes Context-Objekt
       @param example Beispielobjekt, damit die Methode statisch sein kann.
       @param filter Ein Beispiel-Objekt, wie die zu suchenden aussehen sollen
-      @return List-Objekt, das die gefundenen Objekte enth&auml;lt
+      @return List-Objekt, das die gefundenen Objekte enthaelt
       @throws OBException Auftretende SQL-Exceptions
   */
   public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
@@ -297,7 +297,7 @@ public abstract class OBDBObject extends OBObject  {
       @param whereClause Bedingung, muss mit WHERE beginnen
       @param orderBy Ordnungsbedingung, muss mit ORDER BY beginnen
       @param hint Hint an den Optimizer
-      @return List-Objekt, das die gefundenen Objekte enth&auml;lt
+      @return List-Objekt, das die gefundenen Objekte enthaelt
       @throws OBException Auftretende SQL-Exceptions
   */
   public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
@@ -317,9 +317,9 @@ public abstract class OBDBObject extends OBObject  {
       @param whereClause Bedingung, muss mit WHERE beginnen
       @param orderBy Ordnungsbedingung, muss mit ORDER BY beginnen
       @param hint Hint an den Optimizer
-      @param maxRows H&ouml;chstzahl dr gelieferten Datens&auml;tze
+      @param maxRows Hoechstzahl dr gelieferten Datensaetze
       @param attribs zu selektierende Spalten
-      @return List-Objekt, das die gefundenen Objekte enth&auml;lt
+      @return List-Objekt, das die gefundenen Objekte enthaelt
       @throws OBException Auftretende SQL-Exceptions
   */
   public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
@@ -341,9 +341,9 @@ public abstract class OBDBObject extends OBObject  {
       @param orderBy Ordnungsbedingung, muss mit ORDER BY beginnen
       @param hint Hint an den Optimizer
       @param ignoreFirstLines Nummer der ersten Zeile (Zaehlung beginnt mit 0)
-      @param maxRows H&ouml;chstzahl dr gelieferten Datens&auml;tze
+      @param maxRows Hoechstzahl dr gelieferten Datensaetze
       @param attribs zu selektierende Spalten
-      @return List-Objekt, das die gefundenen Objekte enth&auml;lt
+      @return List-Objekt, das die gefundenen Objekte enthaelt
       @throws OBException Auftretende SQL-Exceptions
   */
   public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
@@ -364,9 +364,9 @@ public abstract class OBDBObject extends OBObject  {
     @param orderBy Ordnungsbedingung, muss mit ORDER BY beginnen
     @param hint Hint an den Optimizer
     @param ignoreFirstLines Nummer der ersten Zeile (Zaehlung beginnt mit 0)
-    @param maxRows H&ouml;chstzahl dr gelieferten Datens&auml;tze
+    @param maxRows Hoechstzahl dr gelieferten Datensaetze
     @param attribs zu selektierende Spalten
-    @return List-Objekt, das die gefundenen Objekte enth&auml;lt
+    @return List-Objekt, das die gefundenen Objekte enthaelt
     @throws OBException Auftretende SQL-Exceptions
   */
   public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
@@ -399,7 +399,7 @@ public abstract class OBDBObject extends OBObject  {
   /** Suche mit Hilfe der PKs
       @param context Durchzureichendes Context-Objekt
       @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param pks ARRAY der Prim&auml;rschl&uuml;ssel
+      @param pks ARRAY der Primaerschluessel
       @return Anzahl der gefundenen Objekte
       @throws OBException Auftretende SQL-Exceptions
   */

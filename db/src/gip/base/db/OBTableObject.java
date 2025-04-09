@@ -75,11 +75,11 @@ public abstract class OBTableObject extends OBDBObject {
   }
 
   
-  /** F&uuml;hrt ein DML-Statement aus (ohne commit).
-      Darf nur in Ausnahmef&auml;llen gemacht werden, da keine Validierung stattfindet.
-      Grund f&uuml;r die Einf&uuml;rung: Performanz bei Massen-Updates
+  /** Fuehrt ein DML-Statement aus (ohne commit).
+      Darf nur in Ausnahmefaellen gemacht werden, da keine Validierung stattfindet.
+      Grund fuer die Einfuerung: Performanz bei Massen-Updates
    * @param context
-   * @param sqlStringIn SQL-String f&uuml;r ein DML-Statement
+   * @param sqlStringIn SQL-String fuer ein DML-Statement
    * @throws OBException
    */
   public static void execSQL(OBContext context, String sqlStringIn) throws OBException {
@@ -151,10 +151,10 @@ public abstract class OBTableObject extends OBDBObject {
   } 
   
   
-  /** F&uuml;hrt ein DQL-Statement aus (ohne commit).
-      Grund f&uuml;r die Einf&uuml;rung: Performanz bei Massen-Updates
+  /** Fuehrt ein DQL-Statement aus (ohne commit).
+      Grund fuer die Einfuerung: Performanz bei Massen-Updates
    * @param context
-   * @param sqlString SQL-String f&uuml;r ein DQL-Statement
+   * @param sqlString SQL-String fuer ein DQL-Statement
    * @return Gefundenen Long-Wert
    * @throws OBException
    */
@@ -958,7 +958,7 @@ public abstract class OBTableObject extends OBDBObject {
       Ein Delete erfolgt nur, falls der Wert von lockRow=-1 ist.
       @param context
       @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param pks ARRAY der Prim&auml;rschl&uuml;ssel
+      @param pks ARRAY der Primaerschluessel
       @throws OBException Falls Fehler beim Loeschen auftritt
   */
   public static void findAndDelete(OBContext context,

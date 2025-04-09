@@ -68,8 +68,8 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
     reset();
   }
   
-  /** Hinzuf&uuml;gen eines OBDBObject. 
-      Die Aufz&auml;hlung wir dadurch invalidiert
+  /** Hinzufuegen eines OBDBObject. 
+      Die Aufzaehlung wir dadurch invalidiert
       @param entry neuer Eintrag
    */
   public boolean add(O entry) {
@@ -77,8 +77,8 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
     return content.add(entry);
   }
 
-  /** Hinzuf&uuml;gen eines OBDBObject an der Stelle i. 
-      Die Aufz&auml;hlung wir dadurch invalidiert
+  /** Hinzufuegen eines OBDBObject an der Stelle i. 
+      Die Aufzaehlung wir dadurch invalidiert
       @param index Numer des Eintrags
       @param entry neuer Eintrag
    */
@@ -87,9 +87,9 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
     currentNumber=OBConstants.IRREGULAR_INT;
   }
 
-  /** Hinzuf&uuml;gen eines Vectors von OBDBObject. 
-      Die Aufz&auml;hlung wir dadurch invalidiert
-      @param newContent Vector neuer Eintr&auml;ge
+  /** Hinzufuegen eines Vectors von OBDBObject. 
+      Die Aufzaehlung wir dadurch invalidiert
+      @param newContent Vector neuer Eintraege
    */
   public void add(Vector<O> newContent) {
     for (int i=0; i<newContent.size(); i++) {
@@ -97,9 +97,9 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
     }
   }
 
-  /** Hinzuf&uuml;gen eines ARRAYs von OBDBObject. 
-      Die Aufz&auml;hlung wir dadurch invalidiert.
-      @param newContent Array neuer Eintr&auml;ge
+  /** Hinzufuegen eines ARRAYs von OBDBObject. 
+      Die Aufzaehlung wir dadurch invalidiert.
+      @param newContent Array neuer Eintraege
    */
   public void add(O[] newContent) {
     for (int i=0; i<newContent.length; i++) {
@@ -107,8 +107,8 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
     }
   }
 
-  /** L&ouml;schen eines OBObject. 
-      Die Aufz&auml;hlung wir dadurch invalidiert
+  /** Loeschen eines OBObject. 
+      Die Aufzaehlung wir dadurch invalidiert
       @param i Position
    */
   public void removeElementAt(int i) {
@@ -116,13 +116,13 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
     currentNumber=OBConstants.IRREGULAR_INT;
   }
 
-  /** L&ouml;scht den Inhalt. 
-      Die Aufz&auml;hlung wir dadurch invalidiert. */
+  /** Loescht den Inhalt. 
+      Die Aufzaehlung wir dadurch invalidiert. */
   public void clear() {
     content= new Vector<O>();
   }
 
-  /** Die Aufz&auml;hlung wird validiert und startet von vorne. */
+  /** Die Aufzaehlung wird validiert und startet von vorne. */
   public void reset() {
     currentNumber=0;
   }
@@ -143,7 +143,7 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
     return content.size();
   }
 
-  /** Gibt es n&auml;chste Element der Liste? Wenn ja, wird weitergezaehlt.  
+  /** Gibt es naechste Element der Liste? Wenn ja, wird weitergezaehlt.  
       @return true, wenn es ein weiteres Element gibt
       @deprecated Ersetzen durch die for...-Variante
   */
@@ -160,8 +160,8 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
   }
 
 
-  /** Gibt das n&auml;chste Element der Liste, wenn noch mindestens eins vorhanden ist.  
-      @return das gew&uuml;nschte Element
+  /** Gibt das naechste Element der Liste, wenn noch mindestens eins vorhanden ist.  
+      @return das gewuenschte Element
       @throws OBException wenn kein weiteres Element existiert
       @deprecated Ersetzen durch die for...-Variante
   */
@@ -175,7 +175,7 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
   }
 
   /** Gibt das aktuelle Element der Liste.  
-      @return das gew&uuml;nschte Element
+      @return das gewuenschte Element
       @throws OBException wenn das Element nicht existiert
       @deprecated Ersetzen durch die for...-Variante
   */
@@ -191,10 +191,10 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
   }
 
 
-  /** Gibt das gew&uuml;nschte Element der Liste, wenn es vorhanden ist.  
+  /** Gibt das gewuenschte Element der Liste, wenn es vorhanden ist.  
       @param index Nummer des Wertes
       @deprecated use elementAt instead
-      @return das gew&uuml;nschte Element
+      @return das gewuenschte Element
       @throws OBException wenn das Element nicht existiert
   */
   public O baseElementAt(int index) throws OBException {
@@ -206,9 +206,9 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
     }
   }
   
-  /** Gibt das gew&uuml;nschte Element der Liste, wenn es vorhanden ist.  
+  /** Gibt das gewuenschte Element der Liste, wenn es vorhanden ist.  
     @param index Nummer des Wertes
-    @return das gew&uuml;nschte Element
+    @return das gewuenschte Element
     @throws OBException wenn das Element nicht existiert
    */
   public O elementAt(int index) throws OBException {
@@ -251,14 +251,14 @@ public class OBListObject<O extends OBObject> implements Serializable, Collectio
   }
 
 
-  /** Gibt den gesamten Inhalt als Vector zur&uuml;ck.
+  /** Gibt den gesamten Inhalt als Vector zurueck.
       @return gesamter Inhalt
   */
   public Vector<O> getVector() {
     return content;
   }
 
-  /** Gibt den gesamten Inhalt als List zur&uuml;ck.
+  /** Gibt den gesamten Inhalt als List zurueck.
       @return gesamter Inhalt
    */
   public List<O> getList() {
