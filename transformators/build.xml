@@ -18,14 +18,10 @@
 -->
 <project name="xynaorm-transformatoren" default="build" basedir=".">
 
-  <!--Next release version for the archive file-->
   <property name="release.number" value="3.0.0.0" />
-  <!--Name of the utils project-->
-  <property name="utils.name" value="transformators" />
-  
   <property name="release.dir" value="release" />
   <property name="build.dir" value="build" />
-  <property name="project.name" value="xynaorm-${utils.name}" />
+  <property name="project.name" value="xynaorm-transformators" />
 
   <target name="build" description="Create build artfact">
     <buildVersion destdir="${build.dir}"
