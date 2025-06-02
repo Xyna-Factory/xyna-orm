@@ -15,508 +15,224 @@
  * limitations under the License.
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
  */
-package gip.base.db;
+package gip.base.common;
 
-import gip.base.common.*;
-import gip.base.db.drivers.OBDriver;
-
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.sql.*;
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.HashSet;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.io.Serializable;
+import java.util.*;
 
 import org.apache.log4j.Logger;
 
-/**
- * OBDBObject
- */
 @SuppressWarnings("serial")
-public abstract class OBDBObject extends OBObject  {
+public abstract class OBObject implements OBCheckListener, Serializable {
+
+  private transient static Logger logger = Logger.getLogger(OBObject.class);
+
+  public static final String[] hiddenAtts = {"password", //$NON-NLS-1$
+                                             "userPass", //$NON-NLS-1$
+                                             "encryptPwd", //$NON-NLS-1$
+                                             "tan", //$NON-NLS-1$
+                                             "pin", //$NON-NLS-1$
+                                             "oldPassword", //$NON-NLS-1$
+                                             "otpPin", //$NON-NLS-1$
+                                             "voipPin", //$NON-NLS-1$
+                                             "passwordRepeat", //$NON-NLS-1$
+                                             "connectionPassword", //$NON-NLS-1$
+                                             "pwd",  //$NON-NLS-1$
+                                             "cruPassword",  //$NON-NLS-1$
+                                             "rngPassword",  //$NON-NLS-1$
+                                             "certPassword",  //$NON-NLS-1$
+                                             "oldCertPassword"}; //$NON-NLS-1$
+
+  public static final String START_PROJECT_SCHEMA = "<##projectSchema:"; //$NON-NLS-1$
+  public static final String END_PROJECT_SCHEMA = "##>"; //$NON-NLS-1$
+  
+  public static final int PREPAREDSTATMENTLEVEL_NONE = 0;  // "plain" WHERE Clause 
+  public static final int PREPAREDSTATMENTLEVEL_ALL =  1;  // WHERE Clause als PreparedStatement
+  public static int preparedStatmentLevel = PREPAREDSTATMENTLEVEL_ALL;
+
+  /** Vektor mit Attributen der Tabelle */
+  public OBAttribute[] attArr = null;
+
+  /** Primary Key Attribut */
+  public OBAttribute primaryKeyAtt;
+  /** Name des Primary Keys */
+  public String primaryKey = ""; //$NON-NLS-1$
+  /** Kommentar zur Tabelle */
+  public String comment = ""; //$NON-NLS-1$
+  /** Ergaenzung zum whereClause */
+  public String wcModifier = ""; //$NON-NLS-1$
+  /** Ordnungsbedingung fuer Selection */
+  private String orderClause = ""; //$NON-NLS-1$
+
+  private int _ignoreFirstRows = 0;
+  
+  private boolean _caseSensitive = true;
+  
+  /** Name der Tabelle, wird in der abgeleiteten Klasse gesetzt */
+  public String tableName;
+
+  /** Trenner fuer getIdentifier */
+  protected final String SEPSTRING = ", "; // Trenner fuer getIdentifier //$NON-NLS-1$
 
   /** Datumsformat (Default: ohne Uhrzeit */
   private String format = OBConstants.NLS_DATE_FORMAT;
-  
-  /** Ausnahmsweise statisch, da application-weit */ 
-  public static int maxClobLength=OBAttribute.NULL;
-  
-  /** dataPrivacyClass Pattern */
-  public static Pattern oneisonePattern = Pattern.compile("WHERE\\s+1\\s+=\\s+1\\s+");
-  public static Pattern wherePattern    = Pattern.compile("WHERE\\s+");
-  
-  /** dataPrivacyClass(List) Konstante(n) */
-  public static String DPC      = "dataPrivacyClass";
-  public static String DPC_LIST = "dataPrivacyClassList";
-  
-  /**
-   *  Moegliche Werte fuer die Benutzung von PreparedStatments
-   */
-  //public static interface PreparedStatmentLevelIntf {
-  //  public static final int ALL = 1;
-  //  public static final int NONE =0;
-  //}
-
-  /** konkreter Wert fuer die Benutzung von PreparedStatments*/
-  // Variable preparedStatementLevel in die Oberklasse OBObject verschoben
-  //public static int OBObject.preparedStatmentLevel = OBObject.PREPAREDSTATMENTLEVEL_NONE;
-  
-  private transient static Logger logger = Logger.getLogger(OBDBObject.class);
 
   // ---------------------------------------------------------------------------
   // -------- Konstruktor ----------------------------------------------------  
   // ---------------------------------------------------------------------------
 
   /** Standard-Konstruktor */
-  public OBDBObject() {
-    // ntbd
+  public OBObject() { // ntbd
   }
 
-  /**
-   * Liefert i.A. die DataConnection.
-   * Kann ueberschrieben werden, wenn z.B. die MesCon gebraucht wird
-   * @param context OBContext, aus dem die Connection geholt wird
-   * @return Die fuer das Objekt korrekte Connection
-   */
-  protected OBConnectionInterface getCorrectConnection(OBContext context) {
-    return context.getDataConnection();
+  // ---------------------------------------------------------------------------
+  // ------- Hilfsmethoden -----------------------------------------------------
+  // ---------------------------------------------------------------------------
+  private String pimpWCModifier(String _wcModifier) {
+    if (_wcModifier==null || _wcModifier.trim().length()==0) {
+      return ""; //$NON-NLS-1$
+    }
+    String compStr = _wcModifier.trim().substring(0,4).toUpperCase();
+    if (compStr.startsWith("AND ") ||  //$NON-NLS-1$
+        compStr.startsWith("OR ")) { //$NON-NLS-1$
+      return _wcModifier;
+    }
+    else {
+      return " AND " + _wcModifier; //$NON-NLS-1$
+    }
   }
   
-  // ---------------------------------------------------------------------------
-  // -------- Selektions-Methoden ----------------------------------------------  
-  // ---------------------------------------------------------------------------
 
-  // -------- Selectionsmethoden, die ein Objekt erwarten ----------------------
-
-
-  /** Suche nach einem Objekt mit Hilfe des Primaerschluessels
-   * @param context
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param pk Primaerschluesselwert
-      @param hint Hint an den Optimizer
-      @return Das gefundene Objekt
-   * @throws OBException
-      @throws OBException wenn der Datensatz nicht gefunden wurde oder nicht eindeutig war (bei Views)
+  /** Setzt eine zusaetzliche Selektionsbedingung
+      @param _wcModifier die zusaetzliche Selektionsbedingung (muss mit AND/OR beginnen, sonst wird automatisch ein AND vorangestellt)
   */
-  public static OBObject find(OBContext context, 
-                                OBObject example, 
-                                long pk,
-                                String hint) throws OBException {
-    if (pk==OBConstants.IRREGULAR_INT) {
-      throw new OBException(OBException.OBErrorNumber.pkValueIrregular1, new String[]{example.getSQLName(), pk+""}); //$NON-NLS-1$
-    }
-    if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-      String whereClause = " WHERE " + example.getPrimaryKeyName() + " = " + pk + " "; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-      return find(context,example,whereClause,null,hint);
-    }
-    else {
-      String whereClause = " WHERE " + example.getPrimaryKeyName() + " = ? "; //$NON-NLS-1$ //$NON-NLS-2$
-      ArrayList<String> replArr = new ArrayList<String>();
-      replArr.add(String.valueOf(pk));
-      return find(context,example,whereClause,replArr,hint);
-    }
+  public void setWCModifier(String _wcModifier) {
+    this.wcModifier = pimpWCModifier(_wcModifier);
   }
 
-  /** Suche nach einem Objekt mit Hilfe eines Beispiel-Objektes
-      @param context Durchzureichendes Context-Objekt
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param filter Ein Beispiel-Objekt, wie das zu suchende aussehen soll
-      @return Das gefundene Objekt
-      @throws OBException wenn der Datensatz nicht gefunden wurde oder nicht eindeutig war
+  /** Erfragt zusaetzliche Selektionsbedingung
+      @return die zusaetzliche Selektionsbedingung
   */
-  public static OBObject find(OBContext context, 
-                              OBObject example, 
-                              OBObject filter) throws OBException {
-
-    if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-      String whereClause = " " + filter.getWhereClauseFromFilter(null, filter.getCaseSensitive()) + " "; //$NON-NLS-1$ //$NON-NLS-2$
-      return find(context,example, whereClause, filter.getHint());
-    }
-    else {
-      ArrayList<String> replArray = new ArrayList<String>();
-      String whereClause = " " + filter.getWhereClauseFromFilterForPreparedStatement(null, filter.getCaseSensitive(), replArray);
-      return find(context, example, whereClause, replArray, filter.getHint());
-    }
+  public String getWCModifier() {
+    return wcModifier;
   }
 
-                                   
-  /** Suche nach einem Objekt mit Hilfe einer SQL-Bedingung
-      @param context Durchzureichendes Context-Objekt
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param whereClause Bedingung, muss mit WHERE beginnen
-      @param hint Hint an den Optimizer
-      @return Das gefundene Objekt
-      @throws OBException wenn der Datensatz nicht gefunden wurde oder nicht eindeutig war
-  */
-  public static OBObject find(OBContext context, 
-                                OBObject example, 
-                                String whereClause,
-                                String hint) throws OBException {
-    return find(context,example,whereClause,null,hint);
-  }
-
-  /** Suche nach einem Objekt mit Hilfe einer SQL-Bedingung
-    @param context Durchzureichendes Context-Objekt
-    @param example Beispielobjekt, damit die Methode statisch sein kann.
-    @param whereClause Bedingung, muss mit WHERE beginnen
-    @param hint Hint an den Optimizer
-    @return Das gefundene Objekt
-    @throws OBException wenn der Datensatz nicht gefunden wurde oder nicht eindeutig war
+  /** Ergaenzt eine zusaetzliche Selektionsbedingung (Die alte wird nicht ueberschrieben) Entspricht dem Aufruf appendWCModifier(_wcModifier, true);
+   * @param _wcModifier die zusaetzliche Selektionsbedingung (muss mit AND beginnen)
+   * @return String
    */
-  public static OBObject find(OBContext context, 
-                              OBObject example, 
-                              String whereClause,
-                              ArrayList<String> replArray,
-                              String hint) throws OBException {
-    String[] sqlString = getStatement(context,example, 0, whereClause, hint, null); 
-    OBListObject<OBObject> list = null;
-    if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-      list = executeSqlStatement(context, example, 
-                                 sqlString, 
-                                 "",    // orderBy macht bei einem Datensatz keinen Sinn //$NON-NLS-1$
-                                 0,     // der erste
-                                 2,     // Gebraucht wird einer, wenn es einen 2. gibt->Fehler
-                                 null); // Attribut-Liste, bisher nur default noetig
-    }
-    else {
-      list = _executePreparedSqlStatement(context, example, 
-                                          sqlString, 
-                                          replArray,
-                                          "",    // orderBy macht bei einem Datensatz keinen Sinn //$NON-NLS-1$
-                                          0,     // der erste
-                                          2,     // Gebraucht wird einer, wenn es einen 2. gibt->Fehler
-                                          null); // Attribut-Liste, bisher nur default noetig
-      
-    }
-    String name = example.getClass().getName();
-    name = name.substring(name.lastIndexOf('.')+1, name.length());
-                                
-    // Es kann nur einen geben ...
-    int count = list.size();
-    if (count==0) {
-      throw new OBException (OBException.OBErrorNumber.objectNotFound1, new String[] {name});
-    }
-    else if (count>1) {
-      throw new OBException (OBException.OBErrorNumber.objectNotUnique1, new String[] {name});
-    }
-
-    return list.elementAt(0);
+  public String appendWCModifier(String _wcModifier) {
+    return appendWCModifier(_wcModifier, true);
   }
 
-
-  // -------- Selectionsmethoden, die eine Liste von Objekten erwarten ---------
-
-
-  /** Suche nach mehreren Objekten mit Hilfe der PKs und einer Ordnungsbedingung
-      @param context Durchzureichendes Context-Objekt
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param pks ARRAY der Primaerschluessel
-      @param orderBy Ordnungsbedingung, muss mit ORDER BY beginnen
-      @param hint Hint an den Optimizer
-      @return List-Objekt, das die gefundenen Objekte enthaelt
-      @throws OBException Auftretende SQL-Exceptions
-  */
-  public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
-                                                E example, 
-                                                long[] pks, 
-                                                String orderBy, 
-                                                String hint) throws OBException {
-    if (pks.length==0) return new OBListObject<E>();
-
-    final int max = 1000;
-    
-    ArrayList<String> replArray = new ArrayList<String>();
-    
-    if (pks.length<max) {
-      String whereClause = " WHERE " + example.getPrimaryKeyName() + " IN ("; //$NON-NLS-1$ //$NON-NLS-2$
-      for (int i=0; i<pks.length; i++) {
-        if (i!=0) {
-          whereClause += ", "; //$NON-NLS-1$
-        }
-        if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-          whereClause += pks[i];
-        }
-        else {
-          whereClause+="?";
-          replArray.add(String.valueOf(pks[i]));
-        }
-      }
-      whereClause += ") "; //$NON-NLS-1$
-      return findAll(context,example,whereClause,replArray, orderBy, hint,0,INFINITE_ROWS,null);
-    }
-    else {
-      String whereClause = " WHERE " + example.getPrimaryKeyName() + " IN ("; //$NON-NLS-1$ //$NON-NLS-2$
-      for (int i=0; i<pks.length; i++) {
-        if (i>0 && i%max==0) {
-          whereClause += ") OR "+ example.getPrimaryKeyName() + " IN ("; //$NON-NLS-1$ //$NON-NLS-2$
-        }
-        else if (i%max!=0) {
-          whereClause += ", "; //$NON-NLS-1$
-        }
-        if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-          whereClause += pks[i];
-        }
-        else {
-          whereClause+="?";
-          replArray.add(String.valueOf(pks[i]));
-        }
-      }
-      whereClause += ") "; //$NON-NLS-1$
-      return findAll(context,example,whereClause, replArray, orderBy, hint,0,INFINITE_ROWS,null);
-    }
-  }
-
-  /** Suche nach mehreren Objekten mit Hilfe eines Beispielobjektes
-      @param context Durchzureichendes Context-Objekt
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param filter Ein Beispiel-Objekt, wie die zu suchenden aussehen sollen
-      @return List-Objekt, das die gefundenen Objekte enthaelt
-      @throws OBException Auftretende SQL-Exceptions
-  */
-  public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
-                                                              E example, 
-                                                              OBObject filter) throws OBException {
-    if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-      String whereClause = " " + filter.getWhereClauseFromFilter(null, filter.getCaseSensitive()) + " "; //$NON-NLS-1$ //$NON-NLS-2$
-      return findAll (context,example, whereClause,filter.getOrderClause(),filter.getHint(), filter.getIgnoreFirstRows(), filter.getMaxRowsSelect(),filter.getAttribs());
-    }
-    else {
-      ArrayList<String> replArray = new ArrayList<String>();
-      String whereClause = " " + filter.getWhereClauseFromFilterForPreparedStatement(null,filter.getCaseSensitive(), replArray) + " "; //$NON-NLS-1$ //$NON-NLS-2$
-      return findAll (context,example, whereClause, replArray, filter.getOrderClause(),filter.getHint(), filter.getIgnoreFirstRows(), filter.getMaxRowsSelect(),filter.getAttribs());
-      
-    }
-  }
-
-
-  /** Suche nach mehreren Objekten mit Hilfe einer SQL-Bedingung
-      @param context Durchzureichendes Context-Objekt
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param whereClause Bedingung, muss mit WHERE beginnen
-      @param orderBy Ordnungsbedingung, muss mit ORDER BY beginnen
-      @param hint Hint an den Optimizer
-      @return List-Objekt, das die gefundenen Objekte enthaelt
-      @throws OBException Auftretende SQL-Exceptions
-  */
-  public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
-                                                              E example, 
-                                                              String whereClause,
-                                                              String orderBy,
-                                                              String hint) throws OBException {
-    return findAll(context, example, 
-                   whereClause, orderBy, hint,
-                   INFINITE_ROWS, // maxRows
-                   null); // attribs
-  }
-
-  /** Suche nach mehreren Objekten mit Hilfe einer SQL-Bedingung
-      @param context Durchzureichendes Context-Objekt
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param whereClause Bedingung, muss mit WHERE beginnen
-      @param orderBy Ordnungsbedingung, muss mit ORDER BY beginnen
-      @param hint Hint an den Optimizer
-      @param maxRows Hoechstzahl dr gelieferten Datensaetze
-      @param attribs zu selektierende Spalten
-      @return List-Objekt, das die gefundenen Objekte enthaelt
-      @throws OBException Auftretende SQL-Exceptions
-  */
-  public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
-                                                              E example, 
-                                                              String whereClause,
-                                                              String orderBy,
-                                                              String hint,
-                                                              int maxRows,
-                                                              OBAttribute[] attribs) throws OBException {
-    return findAll(context, example, 
-                   whereClause, orderBy, hint, 
-                   0, maxRows, attribs);
-  }
-
-  /** Suche nach mehreren Objekten mit Hilfe einer SQL-Bedingung
-      @param context Durchzureichendes Context-Objekt
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param whereClause Bedingung, muss mit WHERE beginnen
-      @param orderBy Ordnungsbedingung, muss mit ORDER BY beginnen
-      @param hint Hint an den Optimizer
-      @param ignoreFirstLines Nummer der ersten Zeile (Zaehlung beginnt mit 0)
-      @param maxRows Hoechstzahl dr gelieferten Datensaetze
-      @param attribs zu selektierende Spalten
-      @return List-Objekt, das die gefundenen Objekte enthaelt
-      @throws OBException Auftretende SQL-Exceptions
-  */
-  public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
-                                                              E example, 
-                                                              String whereClause,
-                                                              String orderBy,
-                                                              String hint,
-                                                              int ignoreFirstLines,
-                                                              int maxRows,
-                                                              OBAttribute[] attribs) throws OBException {
-    return findAll(context, example, whereClause, null, orderBy, hint, ignoreFirstLines, maxRows, attribs);
-  }
-
-  /** Suche nach mehreren Objekten mit Hilfe einer SQL-Bedingung
-    @param context Durchzureichendes Context-Objekt
-    @param example Beispielobjekt, damit die Methode statisch sein kann.
-    @param whereClause Bedingung, muss mit WHERE beginnen
-    @param orderBy Ordnungsbedingung, muss mit ORDER BY beginnen
-    @param hint Hint an den Optimizer
-    @param ignoreFirstLines Nummer der ersten Zeile (Zaehlung beginnt mit 0)
-    @param maxRows Hoechstzahl dr gelieferten Datensaetze
-    @param attribs zu selektierende Spalten
-    @return List-Objekt, das die gefundenen Objekte enthaelt
-    @throws OBException Auftretende SQL-Exceptions
-  */
-  public static <E extends OBObject> OBListObject<E> findAll (OBContext context, 
-                                                              E example, 
-                                                              String whereClause,
-                                                              ArrayList<String> replArray,
-                                                              String orderBy,
-                                                              String hint,
-                                                              int ignoreFirstLines,
-                                                              int maxRows,
-                                                              OBAttribute[] attribs) throws OBException {
-    String[] sqlString = getStatement(context,example, 0, whereClause, hint, attribs);
-    
-    if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-      return executeSqlStatement(context, example, 
-                                 sqlString, orderBy, 
-                                 ignoreFirstLines, maxRows, attribs);
-    }
-    else {
-      return _executePreparedSqlStatement(context, example, 
-                                          sqlString,
-                                          replArray,
-                                          orderBy, 
-                                          ignoreFirstLines, maxRows, attribs);
-    }
-  }
-
-  // -------- Selectionsmethoden, die die Anzahl der gefundenen Objekte liefern ----
-
-  /** Suche mit Hilfe der PKs
-      @param context Durchzureichendes Context-Objekt
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param pks ARRAY der Primaerschluessel
-      @return Anzahl der gefundenen Objekte
-      @throws OBException Auftretende SQL-Exceptions
-  */
-  public static int count (OBContext context, 
-                           OBObject example, 
-                           long[] pks) throws OBException {
-    if (pks.length==0) return 0;
-
-    final int max = 1000;
-    
-    ArrayList<String> replArray = new ArrayList<String>();
-    
-    if (pks.length<max) {
-      String whereClause = " WHERE " + example.getPrimaryKeyName() + " IN ("; //$NON-NLS-1$ //$NON-NLS-2$
-      for (int i=0; i<pks.length; i++) {
-        if (i!=0) {
-          whereClause += ", "; //$NON-NLS-1$
-        }
-        if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-          whereClause += pks[i];
-        }
-        else {
-          whereClause+="?";
-          replArray.add(String.valueOf(pks[i]));
-        }
-      }
-      whereClause += ") "; //$NON-NLS-1$
-      return count(context,example,whereClause,replArray);
-    }
-    else {
-      String whereClause = " WHERE " + example.getPrimaryKeyName() + " IN ("; //$NON-NLS-1$ //$NON-NLS-2$
-      for (int i=0; i<pks.length; i++) {
-        if (i>0 && i%max==0) {
-          whereClause += ") OR "+ example.getPrimaryKeyName() + " IN ("; //$NON-NLS-1$ //$NON-NLS-2$
-        }
-        else if (i%max!=0) {
-          whereClause += ", "; //$NON-NLS-1$
-        }
-        if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-          whereClause += pks[i];
-        }
-        else {
-          whereClause+="?";
-          replArray.add(String.valueOf(pks[i]));
-        }
-      }
-      whereClause += ") "; //$NON-NLS-1$
-      return count(context,example,whereClause,replArray);
-    }
-  }
-
-  /** Suche mit Hilfe eines Beispielobjektes
-      @param context Durchzureichendes Context-Objekt
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param filter Ein Beispiel-Objekt, wie die zu suchenden aussehen sollen
-      @return Anzahl der gefundenen Objekte
-      @throws OBException Auftretende SQL-Exceptions
-  */
-  public static int count (OBContext context, 
-                           OBObject example, 
-                           OBObject filter) throws OBException {
-    if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-      String whereClause = " " + filter.getWhereClauseFromFilter(null, filter.getCaseSensitive()) + " "; //$NON-NLS-1$ //$NON-NLS-2$
-      return count(context,example, whereClause);
-    }
-    else {
-      ArrayList<String> replArray = new ArrayList<String>();
-      String whereClause = filter.getWhereClauseFromFilterForPreparedStatement(null, filter.getCaseSensitive(), replArray);
-      return count(context,example,whereClause,replArray);
-    }
-  }
-
-  /** Suche mit Hilfe einer SQL-Bedingung
-      @param context Durchzureichendes Context-Objekt
-      @param example Beispielobjekt, damit die Methode statisch sein kann.
-      @param whereClause Bedingung, muss mit WHERE beginnen
-      @return Anzahl der gefundenen Objekte
-      @throws OBException Auftretende SQL-Exceptions
-  */
-  public static int count (OBContext context, 
-                           OBObject example, 
-                           String whereClause) throws OBException {
-    return count(context,example,whereClause,null);
-  }
-
-  /** Suche mit Hilfe einer SQL-Bedingung
-    @param context Durchzureichendes Context-Objekt
-    @param example Beispielobjekt, damit die Methode statisch sein kann.
-    @param whereClause Bedingung, muss mit WHERE beginnen
-    @return Anzahl der gefundenen Objekte
-    @throws OBException Auftretende SQL-Exceptions
-  */
-  public static int count (OBContext context, 
-                           OBObject example, 
-                           String whereClause,
-                           ArrayList<String> replArray) throws OBException {
-    String[] sqlString = getStatement(context,example, 0, whereClause, "", null); //$NON-NLS-1$
-    if (OBObject.preparedStatmentLevel==OBObject.PREPAREDSTATMENTLEVEL_NONE) {
-      return executeCountStatement(context, example, sqlString[1]);
-    }
-    else {
-      return executePreparedCountStatement(context, example, sqlString[1],replArray);
-    }
-  }
-
-  /** Gibt die Lock-Connection frei
-   * @param con
+  /** Ergaenzt eine zusaetzliche Selektionsbedingung (Die alte wird nicht ueberschrieben)
+   * @param _wcModifier die zusaetzliche Selektionsbedingung (muss mit AND beginnen)
+   * @param pimp Soll geprueft werden, ob der wcModifier mit AND/OR beginnt und im Zweifel AND vorangestellt werden 
+   * @return String
    */
-  public static void giveBackLockConnection(OBConnectionInterface con) {
-    logger.debug("" + con); //$NON-NLS-1$
+  public String appendWCModifier(String _wcModifier, boolean pimp) {
+    if (pimp) {
+      this.wcModifier += pimpWCModifier(_wcModifier);
+    }
+    else {
+      this.wcModifier += _wcModifier;
+    }
+    return this.wcModifier;
   }
 
+  /** Setzt die Reihenfolge, in der Daten selektiert werden sollen
+      @param _orderClause die Ordnungsbedingung (muss mit ORDER BY beginnen)
+  */
+  public void setOrderClause(String _orderClause) {
+    this.orderClause = _orderClause;
+  }
+
+  /** Erfragt die Reihenfolge, in der Daten selektiert werden sollen
+      @return die Ordnungsbedingung
+  */
+  public String getOrderClause() {
+    return orderClause;
+  }
+
+  /** Erfragt den Tabellennamen
+      @return Tabellenname
+  */
+  public String getTableName() {
+    return tableName;
+  }
+  
+  /** Erfragt Filter-Option, wie viele Elemente ueberlesen werden 
+   * @return int */
+  public int getIgnoreFirstRows() { return _ignoreFirstRows;}
+  /** Setzt Filter-Option, wie viele Elemente ueberlesen werden 
+   * @param ignoreFirstRows Zu ignorierende Zeilen */
+  public void setIgnoreFirstRows(int ignoreFirstRows) { this._ignoreFirstRows = ignoreFirstRows;}
+  
+  /**
+   * Fuehrt ein parseInt durch. Im Gegensatz zu Integer.parseInt wird null oder "" zu OBAttribute.NULL geparst.
+   * @param toParse zu parsender String
+   * @return int Wert oder OBAttribute.NULL
+   * @throws OBException NumberFormatException
+   */
+  public static int parseInt(String toParse) throws OBException {
+    if (toParse==null || toParse.trim().length()==0) {
+      return OBAttribute.NULL;
+    }
+    else {
+      try {
+        return Integer.parseInt(toParse.trim());
+      }
+      catch (NumberFormatException e) {
+        logger.error("error parsing int", e);//$NON-NLS-1$
+        throw new OBException(OBException.OBErrorNumber.numberFormatException1, new String[] {toParse});
+      }
+    }
+  }
+
+
+  /**
+   * Fuehrt ein parseLong durch. Im Gegensatz zu Long.parseLong wird null oder "" zu OBAttribute.NULL geparst.
+   * @param toParse zu parsender String
+   * @return long Wert oder OBAttribute.NULL
+   * @throws OBException NumberFormatException
+   */
+  public static long parseLong(String toParse) throws OBException {
+    if (toParse==null || toParse.trim().length()==0) {
+      return OBAttribute.NULL;
+    }
+    else {
+      try {
+        return Long.parseLong(toParse.trim());
+      }
+      catch (NumberFormatException e) {
+        logger.error("error parsing long", e);//$NON-NLS-1$
+        throw new OBException(OBException.OBErrorNumber.numberFormatException1, new String[] {toParse});
+      }
+    }
+  }
+
+
+  /** Erfragt den Tabellennamen in SQL
+   *  Wird in den abgeleiteten Klassen ueberschrieben 
+   *  @return Tabellenname
+   */
+  public String getSQLName() {
+    return "i"+tableName; //$NON-NLS-1$
+  }
+
+  /** Erfragt das Projekt des Objektes, aus dem das zugehoerige DB-Schema gesucht wird.
+   *  Wird in den abgeleiteten Klassen ueberschrieben 
+   *  @return Project
+   */
+  public String getProjectSchema() {
+    return "ipnet"; //$NON-NLS-1$
+  }
+  
   /** Setzt das Datumsformat.
       @param newFormat Datumsformat in Oracle-Notation
    */
   public void setDateFormat(String newFormat) {
-    format=newFormat;
+    format = newFormat;
   }
 
   /** Liefert das Datumsformat.
@@ -527,1190 +243,1901 @@ public abstract class OBDBObject extends OBObject  {
   }
 
   // ---------------------------------------------------------------------------
+  // ------- Zu ueberschreibende Methoden --------------------------------------
+  // ---------------------------------------------------------------------------
+
+  /** Sind in den Gen-Klassen implementiert
+      Liefert komma-getrennte Liste der Attribute, wie sie fuer ein Insert/Update gebraucht werden.
+      @return Attribut-Liste
+   */
+  protected String tableDetails() {
+    return ""; //$NON-NLS-1$
+  }
+
+  /** Sind in den Gen-Klassen implementiert.
+      Liefert komma-getrennte Liste der Attribute, wie sie fuer ein Select gebraucht werden.
+      @return Attribut-Liste
+   */
+  public String tableSelect() {
+    return ""; //$NON-NLS-1$
+  }
+
+  /** Von Gen-Klassen implementiert. Liefert die Anzahl der Attribute.
+      @return Anzahl der Atttribute
+   */
+  public int numAttr() {
+    return -1;
+  }
+
+  // ---------------------------------------------------------------------------
   // ------- Kleinere Methoden -------------------------------------------------
   // ---------------------------------------------------------------------------
 
-  /** Liefert das Objekt aus der Datenbank, das den primary Key des
-      aktuellen Objektes besitzt, auch wenn im aktuellen Objekt Attribute geaendert worden sind.
-      Kann im update benutzt werden, um die alten Werte des zu aendernden Objektes zu bekommen.
-      Die Tabelle, aus der das Objekt gelesen wird, ergibt sich aus dem tableName von this
-   * @param context
-   * @return Das Objekt, wie es in der DB steht
-   * @throws OBException
-  */
-  public OBObject getObjectFromDB(OBContext context) throws OBException {
-    return find(context, this, getPrimaryKey(),""); //$NON-NLS-1$
+  /** Setzt den Primaerschluessel auf den angegebenen Wert
+      @param pk zu setzender Wert des Primaerschluessels
+   * @throws OBException Wenn es keinen PK gibt oder der Wert Null ist
+   */
+  public void setPrimaryKey(long pk) throws OBException {
+    primaryKeyAtt.setValue(pk);
   }
 
-  protected String getPreparedStatementStringForDebug(String sql,
-                                                      ArrayList<String> replArray,
-                                                      ArrayList<OBAttribute> hasLOBs,
-                                                      long key, long lock) {
-    return getPreparedStatementStringForDebug(sql, replArray, hasLOBs, key, lock, attArr);
+  /** Liefert Wert des Primaerschluessels.
+      @return Wert des Primaerschluessels
+      @throws OBException Es ist kein PK bekannt
+   */
+  public long getPrimaryKey() throws OBException {
+    if (primaryKeyAtt == null || primaryKeyAtt.isNull()) {
+      throw new OBException(OBException.OBErrorNumber.pkUnkown);
+    }
+    return primaryKeyAtt.getLongValue();
+  }
+
+  /** Liefert den Namen des Primaerschluessels.
+      @return Name des Primaerschluessels
+   */
+  public String getPrimaryKeyName() {
+    return primaryKey;
   }
   
-  protected static String getPreparedStatementStringForDebug(String sql,
-                                                             ArrayList<String> replArray,
-                                                             ArrayList<OBAttribute> hasLOBs,
-                                                             long key, long lock,
-                                                             OBAttribute[] attArr) {
-    StringBuffer retVal = new StringBuffer(sql);
-    int countRepl=0;
-    if (replArray!=null && replArray.size()>0) {
-      retVal.append(" [");
-      for (int i = 0; i < replArray.size(); i++) {
-        if (i>0) retVal.append(",");
-        retVal.append(replArray.get(i));
-        countRepl++;
-      }
-      retVal.append("]");
+  /** Erfragt, ob das PK-Attribute NULL ist
+   * @return true, wenn pk null
+   * @throws OBException wenn kein PK bekannt ist */
+  public boolean isPrimaryKeyNull() throws OBException {
+    if (primaryKeyAtt == null) {
+      throw new OBException(OBException.OBErrorNumber.pkUnkown);
     }
-    if (hasLOBs!=null && hasLOBs.size()>0) {
-      retVal.append(", LOBS [");
-      for (int i = 0; i < hasLOBs.size(); i++) {
-        if (i>0) retVal.append(",");
-        if (hasLOBs.get(i).type==OBConstants.CLOB) {
-          retVal.append(hasLOBs.get(i).name).append(":");
-          if (hasLOBs.get(i).value.length()>100) {
-            retVal.append(hasLOBs.get(i).value.substring(0, 100));
+    return primaryKeyAtt.isNull(); 
+  }
+
+  /** Erfragt, ob das PK-Attribute NOT NULL ist
+   * @return true, wenn pk not null
+   * @throws OBException wenn kein PK bekannt ist */
+  public boolean isPrimaryKeyNotNull() throws OBException {
+    if (primaryKeyAtt == null) {
+      throw new OBException(OBException.OBErrorNumber.pkUnkown);
+    }
+    return primaryKeyAtt.isNotNull(); 
+  }
+
+  /** Loescht die Werte aller Attribute der Tabelle.
+   */
+  public void clear() {
+    OBAttribute a;
+    for (int j = 0; j < attArr.length; j++) {
+      a = attArr[j];
+      a.clear();
+      if (primaryKeyAtt != null && a == primaryKeyAtt) {
+        a.setIgnored(true);
+      }
+    }
+  }
+
+  /** Dupliziert das Object
+   *  @return dupliziertes Objekt
+      @throws CloneNotSupportedException Wenn beim Clonen etwas misslingt
+   */
+  public OBObject clone() throws CloneNotSupportedException {
+    Class<? extends OBObject> cl = this.getClass();
+    OBObject to;
+    try {
+      to = cl.newInstance();
+      to.copy(this);
+    }
+    catch (Exception e) {
+      throw new CloneNotSupportedException(e.getMessage());
+    }
+    return to;
+  }
+
+  /**
+   * Vergleicht das Objekt mit einem anderen (case-insensitive). 
+   * Wird nach einer numerischen Spalte sortiert, so werden die Werte erst in eine Zahl verwandelt.
+   * @param anotherOBObject Anderes Objekt vom selben Typ
+   * @param columnName Name der Vergleichsspalte
+   * @return Bei String-Typen das, was String.compareTo auf den Werten der Spalte liefert, bei Zahlen-Typen mit numerischem Vergleich
+   * @throws NumberFormatException bei numerischen Spalten und nichtnumerischen Werten
+   * @throws OBException Sonstiger Fehler
+   */
+  public int compareTo(OBObject anotherOBObject, String columnName) throws NumberFormatException, OBException {
+    boolean b_numeric = false;
+    String s1 = getValue(columnName).toUpperCase();
+    String s2 = anotherOBObject.getValue(columnName).toUpperCase();
+    int type =  getType(columnName);
+    if (type == OBConstants.INTEGER || type == OBConstants.LONG || type == OBConstants.DOUBLE) {
+      b_numeric = true;
+    }
+    if (b_numeric) {
+      double d1 = Double.parseDouble(s1);
+      double d2 = Double.parseDouble(s2);
+      if (d1<d2) { return -1; }
+      else if (d1>d2) {return 1; }
+      return 0;
+    }
+    else {
+      return s1.compareTo(s2);
+    }
+  }
+  
+
+  /** Kopiert die Werte eines anderen Objektes in dieses.
+      Hier werden lockRow, pk, und inDate NICHT mit kopiert.
+      @param copy Das zu kopierende Objekt
+  */
+  public void copy(OBObject copy) {
+    OBAttribute cattr;
+    OBAttribute attr;
+    for (int j = 0; j < attArr.length; j++) {
+      attr = attArr[j];
+      if (!(attr.name.equals("inDate")) //$NON-NLS-1$
+        && !(attr.name.equals(primaryKey))
+        && !(attr.name.equals("lockRow")) //$NON-NLS-1$
+        && !(attr.name.equals("timestamp"))) { //$NON-NLS-1$
+        cattr = copy.attArr[j];
+        attr.setValue(cattr.getValue());
+        if(attr.type == OBConstants.BLOB) {
+          attr.bvalue = (cattr.bvalue.clone());
+        }
+      }
+    }
+  }
+
+  
+  /**
+   * Kopiert die Werte des uebergebenen Objektes in das aufrufende Objekt. 
+   * Hier werden u.a. auch lockRow, pk, und inDate kopiert.
+   * @param copyTemplate Die Vorlage der Kopie.
+   * @throws OBException Fehlermeldung
+   */
+  public void copyAll(OBObject copyTemplate) throws OBException {
+    OBAttribute attr;
+    OBAttribute cpAttr;
+    for (int j = 0; j < attArr.length; j++) {
+      if (!attArr[j].name.equals(copyTemplate.attArr[j].name)) {
+        throw new OBException(OBException.OBErrorNumber.noSuchElementException1);
+      }
+      attr = attArr[j];
+      cpAttr = copyTemplate.attArr[j];
+      attr.setValue(cpAttr.getValue());
+      if(attr.type == OBConstants.BLOB) {
+        attr.bvalue = (cpAttr.getByteArrayValue().clone());
+      }
+    }
+  }
+
+  
+  /** Kopiert Werte von Attributen eines OBObjects in ein anderes.
+      Dies geschieht auf Basis von name-matching, d.h. kopiert die
+      Werte, falls die Namen der Attribute uebereinstimmen.
+   * @param copyFrom Vorlage zum Kopieren
+   */
+  public void copyAttribValuesWithSameNameFromOtherObject(OBObject copyFrom) {
+    OBAttribute a1,a2;
+    for(int i=0; i<this.attArr.length; i++) {
+      for(int j=0; j<copyFrom.attArr().length; j++) {
+        a1 = this.attArr[i];
+        a2 = copyFrom.attArr[j];
+        if(a1.name.equals(a2.name)) {
+          a1.setValue(a2.value);
+          break;
+        }
+      }
+    }
+  }
+  
+  
+  /** Zwei Objecte sind gleich, wenn sie in allen Spalten au&szlig;er
+      inDate, changeDate und lockRow uebereinstimmen
+   * @param obj2 Vergleichsobjekt
+   * @return true, wenn gleich
+   */
+  public boolean equals(Object obj2) {
+    if (!(obj2 instanceof OBObject)) {
+      return false;
+    }
+    OBObject otherObj = (OBObject)obj2;
+    OBAttribute cattr;
+    OBAttribute attr;
+    for (int j = 0; j < attArr.length; j++) {
+      attr = attArr[j];
+      if (!(attr.name.equals("inDate")) //$NON-NLS-1$
+        && !(attr.name.equals(primaryKey))
+        && !(attr.name.equals("lockRow")) //$NON-NLS-1$
+        && !(attr.name.equals("timestamp")) //$NON-NLS-1$
+        && !(attr.name.equals("changeDate"))) { //$NON-NLS-1$
+        cattr = otherObj.attArr[j];
+        if (!attr.value.equals(cattr.value)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Ueberschreibt die Object-Methode
+   * @see java.lang.Object#hashCode()
+   */
+  public int hashCode() {
+    OBAttribute attr;
+    int hash = 0;
+    for (int j = 0; j < attArr.length; j++) {
+      attr = attArr[j];
+      if (!("inDate".equals(attr.name)) //$NON-NLS-1$
+        && !(primaryKey.equals(attr.name))
+        && !("lockRow".equals( attr.name )) //$NON-NLS-1$
+        && !("timestamp".equals(attr.name)) //$NON-NLS-1$
+        && !("changeDate".equals(attr.name))) { //$NON-NLS-1$
+        if (attr.value != null) {
+          hash += attr.value.hashCode();
+        }
+      }
+    }
+    return hash;
+  }
+  
+  /** Gibt das Attribut-Array zurueck.
+      @return ARRAY mit Attributen
+   */
+  public OBAttribute[] attArr() {
+    return attArr;
+  }
+
+  /** Setzt das Attribut-Array.
+      @param aa ARRAY mit Attributen
+   */
+  public void setAttArr(OBAttribute[] aa) {
+    attArr=aa;
+  }
+
+  /** Gibt die Attribute als Vector zurueck.
+      @return Vector mit Attributen
+   */
+  public Vector<OBAttribute> attVector() {
+    Vector<OBAttribute> v = new Vector<OBAttribute>(numAttr());
+    for (int j = 0; j < attArr.length; j++) {
+      v.addElement(attArr[j]);
+    }
+    return v;
+  }
+
+  // ---------------------------------------------------------------------------
+  // ------- Print- und Ausgabe-Methoden ---------------------------------------
+  // ---------------------------------------------------------------------------
+
+  /** "Multipliziert" ein Zeichen, z.B. multChar('#', 3) = "###"
+      @param c     Zeichen das "multipliziert" werden soll
+      @param count Anzahl, wie oft das Zeichen multipliziert werden soll
+      @return      String des mutl. Zeichens
+  */
+  private static String multChar(char c, int count) {
+    StringBuffer sb = new StringBuffer();
+    for (int i = 0; i < count; i++) {
+      sb.append(c);
+    }
+    return sb.toString();
+  }
+
+  /** Liefert eine gut lesbare Repraesentation eines OBObjects 
+   * @return String-Repraesentation */
+  public String toString() {
+    int CUT_AT = 40;
+    String indent = multChar(' ', 2);
+    String dump;
+    OBAttribute att;
+
+    // cout max len of key + value
+    int max_key = -1;
+    int max_val = "<not set>".length(); //$NON-NLS-1$
+    int curr_key, curr_val;
+    if (attArr()!=null) {
+      for (int i = 0; i < attArr().length; i++) {
+        att = attArr()[i];
+        curr_key = att.name.length();
+        curr_val = att.value.length();
+        if (curr_key > max_key) {
+          max_key = curr_key;
+        }
+        if (curr_val > max_val) {
+          max_val = curr_val;
+        }
+      }
+    }
+    if (max_val > CUT_AT) {
+      max_val = CUT_AT;
+    }
+    // get only last part of the (fully qualified) classname of this object
+    StringTokenizer st = new StringTokenizer(getClass().getName(), "."); //$NON-NLS-1$
+    String clsname = "<unkown>"; //$NON-NLS-1$
+    while (st.hasMoreElements())
+      clsname = st.nextToken();
+
+    String header =
+      indent
+        + "+" //$NON-NLS-1$
+        + (multChar('-', max_key + max_val + 5))
+        + "+\n" //$NON-NLS-1$
+        + indent
+        + "| " //$NON-NLS-1$
+        + clsname
+        + (multChar(' ', max_key + max_val + 3 - clsname.length()))
+        + " |\n" //$NON-NLS-1$
+        + indent
+        + "+" //$NON-NLS-1$
+        + (multChar('-', max_key + max_val + 5))
+        + "+\n"; //$NON-NLS-1$
+    String footer =
+      indent + "+" + (multChar('-', max_key + max_val + 5)) + "+\n"; //$NON-NLS-1$ //$NON-NLS-2$
+
+    // dump the object
+    dump = ""; //$NON-NLS-1$
+    dump = dump + header;
+    if (attArr()!=null) {
+      for (int i = 0; i < attArr().length; i++) {
+        att = attArr()[i];
+        if (att.name.equals("lockRow") //$NON-NLS-1$
+          || att.name.equals("remark") //$NON-NLS-1$
+          || att.name.equals("inDate") //$NON-NLS-1$
+          || att.name.equals("changeDate")) { //$NON-NLS-1$
+          continue;
+        }
+        String val = "<unknown>"; //$NON-NLS-1$
+        try {
+          if (att.value.length() >= CUT_AT - 4) {
+            val = att.value.substring(0, CUT_AT - 4) + " ..."; //$NON-NLS-1$
           }
           else {
-            retVal.append(hasLOBs.get(i).value);
+            val = att.value;
           }
+          if (attIsHidden(att.name)) { 
+            val = multChar('*', val.length());
+          }
+          dump = dump + formatLine(indent, max_key, att.name, max_val, val);
         }
-        if (hasLOBs.get(i).type==OBConstants.BLOB) {
-          retVal.append(hasLOBs.get(i).name).append(":").append(hasLOBs.get(i).bvalue.length);
+        catch (Exception e) {
+          dump =
+            dump + formatLine(indent, max_key, att.name, max_val, "<not set>"); //$NON-NLS-1$
         }
-        countRepl++;
       }
-      retVal.append("]");
     }
-    if (key!=OBAttribute.NULL) {
-      retVal.append(", key:").append(key);
-      countRepl++;
+    else {
+      dump += "Keine Attribute vorhanden"; //$NON-NLS-1$
     }
-    if (lock!=OBAttribute.NULL) {
-      retVal.append(", lock:").append(lock);
-      countRepl++;
-    }
-    retVal.append(" Total: ").append(countRepl);
-    return hide(retVal.toString(),attArr);
-  }
+    dump = dump + footer;
 
-  /**
-   * Liefert den naechsten Wert der Sequenz zur angegebenen Tabelle
-   * @param context
-   * @param projectSchema Projekt, zu dem die Sequenz gehoert, z.B. "ipnet"
-   * @param sequenceName
-   * @return Nextval der Sequenz
-   * @throws OBException
-   */
-  public static long getNextKeyVal(OBContext context, String projectSchema, String sequenceName) throws OBException {
-    String query = OBDriver.getNextKeyValStatement(context,context.getSchema(projectSchema),sequenceName);
-    long value;
-    Statement stmt = null;
-    try {
-      stmt = context.getDataConnection().createStatement();
-      ResultSet rs = stmt.executeQuery(query);
-      rs.next();
-      value = rs.getLong(1);
-      rs.close();
-    }
-    catch (SQLException e) {
-      logger.debug(XynaContextFactory.getSessionData(context) + 
-                   "Error getting nextval of sequence", e);//$NON-NLS-1$
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[]{e.getMessage()});
-    }
-    finally {
-      try {
-        if (stmt!=null) stmt.close();
-      }
-      catch (Exception e) {
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closin statement", e);//$NON-NLS-1$
-      }
-    }
-    return value;
+    return dump;
   }
 
 
-  /**
-   * Liefert den aktuellen Wert der Sequenz zur angegebenen Tabelle
-   * @param context
-   * @param projectSchema Projekt, zu dem die Sequenz gehoert, z.B. "ipnet"
-   * @param sequenceName
-   * @return currVal der Sequenz
-   * @throws OBException
+  /** 
+   * Hilfsmethode fuer printString 
+   * @param indent
+   * @param max_key
+   * @param name
+   * @param max_val
+   * @param val
+   * @return
    */
-  public static long getCurrentKeyVal(OBContext context, String projectSchema, String sequenceName) throws OBException {
-    String query = OBDriver.getCurrentKeyValStatement(context,context.getSchema(projectSchema),sequenceName);
-    long value;
-    Statement stmt = null;
+  private static String formatLine(String indent, int max_key, String name, int max_val, String val) {
+    StringBuffer format = new StringBuffer(indent + "| ");  // beginning of line //$NON-NLS-1$
+    format.append(name).append(multChar(' ', max_key - name.length())).append(" | "); // name part of line //$NON-NLS-1$
+    format.append(multChar(' ', max_val - val.length())).append(val).append(" |\n"); //$NON-NLS-1$
+    return format.toString();
+  }
+
+
+  /** Gibt alle Attribute und deren Werte auf der Konsole aus.
+      Es wird nicht in den OBLog.log.debug-Channel geschrieben.
+      Nur fuer DEBUG-Zwecke der Entwickler gedacht.
+   * @param header Kopfzeile
+  */
+  public void displayForDebug(String header) {
+    logger.debug(header+ "\n"+toString()); //$NON-NLS-1$
+  }
+
+
+  /** Ruft displayForDebug("") auf
+   */
+  public void displayForDebug() {
+    displayForDebug(""); //$NON-NLS-1$
+  }
+
+
+  /** Erzeugt die Ausgabe eines Stack-Traces
+   */
+  public static void printStackTrace() {
     try {
-      stmt = context.getDataConnection().createStatement();
-      ResultSet rs = stmt.executeQuery(query);
-      rs.next();
-      value = rs.getLong(1);
-      rs.close();
+      throw new OBException("Hier bin ich"); //$NON-NLS-1$
     }
-    catch (SQLException e) {
-      logger.debug(XynaContextFactory.getSessionData(context) + 
-                   "error getting currentval of sequence",e);//$NON-NLS-1$
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[]{e.getMessage()});
+    catch (Exception e) {
+      logger.error("Hier bin ich", e); //$NON-NLS-1$
     }
-    finally {
-      try {
-        if (stmt!=null) stmt.close();
+  }
+
+
+  /** Liefert eindeutigen Distinguished-Name eines Objektes.
+      Also ein Bezeichnung der das Objekt im gesammten Datenbestand
+      eindeutig beschreibt. Moeglichst fuer den Anwender interpretierbar.
+      Diese Implementierung hier ist icht fuer den Anwender interpretierbar,
+      da der Primary-Key verwendet wird, der nicht an der GUI sichtbar ist.
+   * @return Eindeutiger Identifier
+   * @throws OBException bei Fehler
+  */
+  public String getIdentifier() throws OBException {
+    try {
+      if (primaryKeyAtt.getValue().length() > 0) {
+        return tableName + " DB-Id: " + primaryKeyAtt.getValue(); //$NON-NLS-1$
       }
-      catch (Exception e) {
-        logger.error(XynaContextFactory.getSessionData(context) + "error closing statement", e);//$NON-NLS-1$
+      else {
+        String attr = toString();
+        return tableName + " Attribute: \n" + attr; //$NON-NLS-1$
       }
     }
-    return value;
+    catch (Exception e) {
+      logger.debug("error getting identifier", e);//$NON-NLS-1$
+      return tableName + "No Identifier created"; //$NON-NLS-1$
+    }
+  }
+
+  private static boolean attIsHidden(String attName) {
+    for (int i = 0; i < hiddenAtts.length; i++) {
+      if (attName.equalsIgnoreCase(hiddenAtts[i])) {
+        return true;
+      }
+    }
+    return false;
+  }
+  
+  /** Versteckt sicherheitsrelevante Werte der Tabelle in der Ausgabe.
+      Diese Werte werden korrekt in der DB abgelegt und
+      nur fuer den Ausgabe-String maskiert.
+      @param in Ausgabe-String
+      @return Maskierter Ausgabe-String
+  */
+  public String hide(String in) {
+    return hide(in, attArr);
+  }
+
+  /**
+   * Versteckt sicherheitsrelevante Werte der Tabelle in der Ausgabe. Diese
+   * Werte werden korrekt in der DB abgelegt und nur fuer den Ausgabe-String
+   * maskiert.
+   * 
+   * @param in Ausgabe-String
+   * @param attArr Liste der Attribute, um zu wissen, ob der Wert versteckt werden soll.
+   * @return Maskierter Ausgabe-String
+   */
+  public static String hide(String in, OBAttribute[] attArr) {
+    String retVal = in;
+    String search;
+    StringBuffer replace;
+    OBAttribute a;
+
+    for (int j = 0; j < attArr.length; j++) {
+      a = (attArr[j]);
+      if (a.value.length() > 0 && attIsHidden(a.name)) {
+        search = a.value;
+        replace = new StringBuffer(50);
+        replace.append("'"); //$NON-NLS-1$
+        for (int c = 0; c < search.length(); c++) {
+          replace.append("*"); //$NON-NLS-1$
+        }
+        replace.append("'"); //$NON-NLS-1$
+
+        int index = 0;
+        while ((index = retVal.indexOf("'" + search + "'")) != -1) { //$NON-NLS-1$ //$NON-NLS-2$
+          retVal = retVal.substring(0, index)
+                   + replace.toString()
+                   + retVal.substring(index + search.length() + 2,
+                                      retVal.length());
+        }
+      }
+    }
+    return retVal;
   }
 
   // ---------------------------------------------------------------------------
   // ------- Fuer das Select benoetigte Methoden -------------------------------
   // ---------------------------------------------------------------------------
 
-  /** Baut den kompletten SQL-Befehl (au&szlig;er ORDER BY) zusammen.
-   * @param context
-   * @param example
-   * @param key
-   * @param whereClause
-   * @param hint
-   * @param attribs
-   * @return Kompleter SQL-Befehl in den Varianten select [0] und count [1]
-   * @throws OBException
-  */
-  private static String[] getStatement(OBContext context,
-                                       OBObject example, 
-                                       long key, String whereClause, 
-                                       String hint,
-                                       OBAttribute[] attribs) throws OBException {
-    String attribSelect = ""; //$NON-NLS-1$
-    String sqlString = ""; //$NON-NLS-1$
-    attribSelect = "SELECT "; //$NON-NLS-1$
-    
-    if (hint!=null && hint.length()>0) {
-      attribSelect += hint + " "; //$NON-NLS-1$
-    }
+  // ******* Hilfsfunktionen ************************************************
 
-    if (attribs != null) {
-      for (int i=0; i<attribs.length-1; i++) {
-        // try-catch zur Fehlersuche (falsch geschriebenes Attribut ist klar, aber welches!)
-        // Eventuell fehlt aber auch eine Primary-Key-Definition in einem View, wenn dieser in einer Select-Maske dargestellt werden soll
-        try { 
-          attribSelect = attribSelect + attribs[i].getSelectName() + ", "; //$NON-NLS-1$
-        }
-        catch (NullPointerException e) {
-          logger.error(XynaContextFactory.getSessionData(context) + "error constructing attriblist " + i,e);//$NON-NLS-1$
-          throw e;
-          
+  /** Liefert ein Array der OBAttribute und fuegt am Schluss noch den PK hinzu.
+      @param name Namen der Attribute die als OBAttribute-Array zurueckgeliefert werden soll.
+      @return OBAttribute-Array plus PK-OBAttribute (kann dann auch ein NULL-Pointer sein)
+   * @throws OBException Fehler
+  */
+  public OBAttribute[] getOBAttributArrayByName(String[] name) throws OBException {
+    OBAttribute[] attrs = new OBAttribute[name.length + 1];
+    for (int i = 0; i < name.length; i++) {
+      for (int j = 0; j < attArr.length; j++) {
+        if (attArr[j].name.equals(name[i])) {
+          attrs[i] = attArr[j];
+          break;
         }
       }
-      attribSelect = attribSelect + attribs[attribs.length-1].getSelectName();
     }
-    else {
-      attribSelect += example.tableSelect();
+    if (null==primaryKeyAtt) {
+      throw new OBException(OBException.OBErrorNumber.noPrimaryKey1, new String[] {getTableName()});
     }
+    attrs[name.length] = primaryKeyAtt;
+    return attrs;
+  }
+
+  public OBAttribute getOBAttributeByName(String name) {
+    for (int j = 0; j < attArr.length; j++) {
+      if (attArr[j].name.equals(name)) {
+        return attArr[j];
+      }
+    }
+    return null;
+  }
+  
+  /** 
+   * Convenience-Methode fuer getWhereClauseFromFilter(colNames[],searchCaseSensitive)
+   * @return Whereclause
+   */
+  public String getWhereClauseFromFilter() {
+    return getWhereClauseFromFilter(null, true);
+  }
+
+  /** Baut einen String fuer die Where-Bedingung eines SQL Statements auf.
+      Ist der String = "", so wird er im whereClause nicht verwendet,
+      da "" in der Datenbank null entspricht.
+      @param colNames Die Spalten, die im Where beruecksichtigt werden sollen.
+      @param searchCaseSensitive Gibt an, ob Gross/Kleinschreibung wichtig ist
+      @return SQL-Where-Clause
+  */
+  public String getWhereClauseFromFilter(String[] colNames,
+                                         boolean searchCaseSensitive) {
+    // Umbenannt wegen Default-Access statt public
+    //  public String getWhereClause(boolean searchCaseSensitive) {
+    String wc = ""; //$NON-NLS-1$
+    String tmp = ""; //$NON-NLS-1$
+    boolean flag;
+    OBAttribute a;
+
+    boolean withANDOR = false;
+    String andOrString = " OR "; //$NON-NLS-1$
+    boolean withWildcard = false;
+    boolean checkForNull = false;
+    String tmp1 = ""; //$NON-NLS-1$
+    String tmp2 = ""; //$NON-NLS-1$
+    int index = -1;
+    String tmpCompOp = CompOperator.like;
+    String tmp1CompOp = CompOperator.like;
+    String tmp2CompOp = CompOperator.like;
+
+    try {
+      for (int i = 0; i < attArr.length; i++) {
+        flag = false;
+        a = attArr[i];
+        tmp = a.value;
+
+        // wird attribut in whereclause benutzt?
+        if (colNames == null) {
+          flag = true;
+        }
+        else {
+          for (int j = 0; j < colNames.length; j++) {
+            if (a.name.equals(colNames[j])) {
+              flag = true;
+            }
+          }
+        }
+        if (flag == true) {
+          // Test, ob auf (NOT) NULL abgefragt werden soll
+          checkForNull =
+            a.getCompOp().equals(CompOperator.isNull)
+              || a.getCompOp().equals(CompOperator.isNotNull);
+          // "" in Java entspricht null in der DB, is(Not)Null braucht keinen Wert
+          if (tmp.equals("!*") || tmp.equals("!%")) { //$NON-NLS-1$ //$NON-NLS-2$
+            if (wc.length() == 0)
+              wc = wc + " WHERE "; //$NON-NLS-1$
+            else
+              wc = wc + " AND "; //$NON-NLS-1$
+
+            wc = wc + a.name + " IS NULL "; //$NON-NLS-1$
+          }
+          else if (tmp.length() > 0 || checkForNull) {
+            // wenn auf (NOT) NULL abgefragt werden soll, braucht im Attribut nichts drinzustehen
+            if (checkForNull) {
+              tmp = ""; //$NON-NLS-1$
+            }
+
+            // am anfang where, dann immer and
+            if (wc.length() == 0)
+              wc = wc + " WHERE "; //$NON-NLS-1$
+            else
+              wc = wc + " AND "; //$NON-NLS-1$
+
+            withANDOR = false;
+            andOrString = " OR "; //$NON-NLS-1$
+            withWildcard = false;
+
+            tmp1 = ""; //$NON-NLS-1$
+            tmp2 = ""; //$NON-NLS-1$
+            index = -1;
+
+            if (a.getCompOp().equals(CompOperator.defaultOp)) {
+              tmpCompOp = CompOperator.like;
+              tmp1CompOp = CompOperator.like;
+              tmp2CompOp = CompOperator.like;
+            }
+            else {
+              tmpCompOp = a.getCompOp();
+              tmp1CompOp = a.getCompOp();
+              tmp2CompOp = a.getCompOp();
+            }
+            if (tmpCompOp.equals(CompOperator.like) ||
+                tmpCompOp.equals(CompOperator.notLike)) {
+              if (a.getValue().indexOf('%')==-1 && 
+                  a.getValue().indexOf('*')==-1 && 
+                  a.getValue().indexOf('_')==-1) {
+                if (tmpCompOp.equals(CompOperator.like)) {
+                  tmpCompOp = CompOperator.equal;
+                  tmp1CompOp = CompOperator.equal;
+                  tmp2CompOp = CompOperator.equal;
+                } 
+                if (tmpCompOp.equals(CompOperator.notLike)) {
+                  tmpCompOp = CompOperator.notEqual;
+                  tmp1CompOp = CompOperator.notEqual;
+                  tmp2CompOp = CompOperator.notEqual;
+                } 
+              }
+            }
+            
+            // Suche mit "oder" ermoeglichen
+            if ((index = tmp.indexOf("||")) != -1) { //$NON-NLS-1$
+              withANDOR = true;
+              andOrString = " OR "; //$NON-NLS-1$
+              tmp1 = tmp.substring(0, index);
+              tmp2 = tmp.substring(index + 2, tmp.length());
+              if (tmp1.charAt(0) == '!') { // Ueberpuefung ob Logisch NOT
+                tmp1CompOp = CompOperator.negateCompOp(tmp1CompOp);
+                tmp1 = tmp1.substring(1, tmp1.length()); // ! Zeichen verwerfen
+              }
+              if (tmp2.charAt(0) == '!') { // Ueberpuefung ob Logisch NOT
+                tmp2CompOp = CompOperator.negateCompOp(tmp2CompOp);
+                tmp2 = tmp2.substring(1, tmp2.length()); // ! Zeichen verwerfen
+              }
+            }
+            else if ((index = tmp.indexOf("&&")) != -1) { //$NON-NLS-1$
+              withANDOR = true;
+              andOrString = " AND "; //$NON-NLS-1$
+              tmp1 = tmp.substring(0, index);
+              tmp2 = tmp.substring(index + 2, tmp.length());
+              if (tmp1.charAt(0) == '!') { // Ueberpuefung ob Logisch NOT
+                tmp1CompOp = CompOperator.negateCompOp(tmp1CompOp);
+                tmp1 = tmp1.substring(1, tmp1.length()); // ! Zeichen verwerfen
+              }
+              if (tmp2.charAt(0) == '!') { // Ueberpuefung ob Logisch NOT
+                tmp2CompOp = CompOperator.negateCompOp(tmp2CompOp);
+                tmp2 = tmp2.substring(1, tmp2.length()); // ! Zeichen verwerfen
+              }
+            }
+            else {
+              tmp = tmp.trim(); // Leerzeichen verwerfen
+              if (tmp.length() > 0
+                && tmp.charAt(0) == '!') { // Ueberpuefung ob Logisch NOT
+                tmpCompOp = CompOperator.negateCompOp(tmpCompOp);
+                tmp = tmp.substring(1, tmp.length()); // ! Zeichen verwerfen
+              }
+            }
+
+            // bei Integers nur mit like % suchen, wenn ein Wildcard-Zeichen drin ist
+            if (a.type == OBConstants.INTEGER
+              || a.type == OBConstants.LONG
+              || a.type == OBConstants.DOUBLE
+              || a.type == OBConstants.BOOLEAN) {
+              if (tmp.indexOf('%') != -1
+                || tmp.indexOf('*') != -1
+                || tmp.indexOf('_') != -1) {
+                withWildcard = true;
+                // Test, ob Wildcards ueberhaupt zulaessig sind
+                if (!a.getCompOp().equals(CompOperator.defaultOp)
+                  && !a.getCompOp().equals(CompOperator.like)
+                  && !a.getCompOp().equals(CompOperator.notLike)) {
+                  throw new OBException("Wildcard not allowed"); //$NON-NLS-1$
+                }
+              }
+              else {
+                // "like" durch "=" und  "not like" durch "!=" ersetzen,
+                // alle anderen Operatoren bleiben !!!!
+                if (tmpCompOp.equals(CompOperator.like)) {
+                  tmpCompOp = CompOperator.equal;
+                }
+                else if (tmpCompOp.equals(CompOperator.notLike)) {
+                  tmpCompOp = CompOperator.notEqual;
+                }
+
+                if (tmp1CompOp.equals(CompOperator.like)) {
+                  tmp1CompOp = CompOperator.equal;
+                }
+                else if (tmp1CompOp.equals(CompOperator.notLike)) {
+                  tmp1CompOp = CompOperator.notEqual;
+                }
+
+                if (tmp2CompOp.equals(CompOperator.like)) {
+                  tmp2CompOp = CompOperator.equal;
+                }
+                else if (tmp2CompOp.equals(CompOperator.notLike)) {
+                  tmp2CompOp = CompOperator.notEqual;
+                }
+              }
+            }
+
+            // unterscheide die verschiedenen typen
+            // int, date und string
+            if (a.type == OBConstants.INTEGER
+              || a.type == OBConstants.BOOLEAN
+              || a.type == OBConstants.LONG
+              || a.type == OBConstants.DOUBLE) {
+              if (checkForNull) {
+                // hier kein rechter Operand
+                wc = wc + a.name + tmpCompOp;
+              }
+              else if (withWildcard) {
+                // es ist ein SuchZeichen drin
+                if (!withANDOR) { // normal
+                  wc =
+                    wc
+                      + a.name
+                      + tmpCompOp
+                      + "'" //$NON-NLS-1$
+                      + transformBadCharForWhere(tmp, tmpCompOp)
+                      + "'"; //$NON-NLS-1$
+                }
+                else {
+                  wc =
+                    wc
+                      + "(" //$NON-NLS-1$
+                      + a.name
+                      + tmp1CompOp
+                      + "'" //$NON-NLS-1$
+                      + transformBadCharForWhere(tmp1, tmp1CompOp)
+                      + "'" //$NON-NLS-1$
+                      + andOrString
+                      + a.name
+                      + tmp2CompOp
+                      + "'" //$NON-NLS-1$
+                      + transformBadCharForWhere(tmp2, tmp2CompOp)
+                      + "')"; //$NON-NLS-1$
+                }
+              }
+              else {
+                // kein Suchzeichen
+                if (!withANDOR) { // normal
+                  wc = wc + a.name + tmpCompOp + transformBadCharForWhere(tmp, tmpCompOp);
+                }
+                else {
+                  wc =
+                    wc
+                      + "(" //$NON-NLS-1$
+                      + a.name
+                      + tmp1CompOp
+                      + transformBadCharForWhere(tmp1,tmp1CompOp)
+                      + andOrString
+                      + a.name
+                      + tmp2CompOp
+                      + transformBadCharForWhere(tmp2, tmp2CompOp)
+                      + ")"; //$NON-NLS-1$
+                }
+              }
+            }
+            else if (a.type == OBConstants.DATE) {
+              if (checkForNull) {
+                // hier kein rechter Operand
+                wc = wc + a.name + tmpCompOp;
+              }
+              else if (!withANDOR) { // normal
+                wc =
+                  wc
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_DATE_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmpCompOp
+                    + "'" //$NON-NLS-1$
+                    + transformBadCharForWhere(tmp, tmpCompOp)
+                    + "'"; //$NON-NLS-1$
+              }
+              else {
+                wc =
+                  wc
+                    + "(" //$NON-NLS-1$
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_DATE_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmp1CompOp
+                    + "'" //$NON-NLS-1$
+                    + transformBadCharForWhere(tmp1, tmp1CompOp)
+                    + "'" //$NON-NLS-1$
+                    + andOrString
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_DATE_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmp2CompOp
+                    + "'" //$NON-NLS-1$
+                    + transformBadCharForWhere(tmp2, tmp2CompOp)
+                    + "')"; //$NON-NLS-1$
+              }
+            }
+            else if (a.type == OBConstants.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+              if (checkForNull) {
+                // hier kein rechter Operand
+                wc = wc + a.name + tmpCompOp;
+              }
+              else if (!withANDOR) { // normal
+                wc =
+                  wc
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_TIMESTAMP_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmpCompOp
+                    + "'" //$NON-NLS-1$
+                    + transformBadCharForWhere(tmp, tmpCompOp)
+                    + "'"; //$NON-NLS-1$
+              }
+              else {
+                wc =
+                  wc
+                    + "(" //$NON-NLS-1$
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_TIMESTAMP_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmp1CompOp
+                    + "'" //$NON-NLS-1$
+                    + transformBadCharForWhere(tmp1, tmp1CompOp)
+                    + "'" //$NON-NLS-1$
+                    + andOrString
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_TIMESTAMP_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmp2CompOp
+                    + "'" //$NON-NLS-1$
+                    + transformBadCharForWhere(tmp2, tmp2CompOp)
+                    + "')"; //$NON-NLS-1$
+              }
+            }
+            else if (a.type == OBConstants.STRING) {
+              if (checkForNull) {
+                // hier kein rechter Operand
+                wc = wc + a.name + tmpCompOp;
+              }
+              else if (!withANDOR) { // normal
+                // bugz 7002
+                if ((a.getCaseSensitivity() == OBAttribute.CaseSensitivity.DEFAULT && searchCaseSensitive) || 
+                    (a.getCaseSensitivity() == OBAttribute.CaseSensitivity.SENSITIVE)) {
+                  wc =
+                    wc
+                      + a.name
+                      + tmpCompOp
+                      + "'" //$NON-NLS-1$
+                      + transformBadCharForWhere(tmp, tmpCompOp)
+                      + "'"; //$NON-NLS-1$
+                }
+                else {
+                  wc =
+                    wc
+                      + "lower(" //$NON-NLS-1$
+                      + a.name
+                      + ")" //$NON-NLS-1$
+                      + tmpCompOp
+                      + "lower('" //$NON-NLS-1$
+                      + transformBadCharForWhere(tmp,tmpCompOp)
+                      + "')"; //$NON-NLS-1$
+                }
+              }
+              else {
+                // bugz 7002
+                if ((a.getCaseSensitivity() == OBAttribute.CaseSensitivity.DEFAULT && searchCaseSensitive) || 
+                    (a.getCaseSensitivity() == OBAttribute.CaseSensitivity.SENSITIVE)) {
+                  wc =
+                    wc
+                      + "(" //$NON-NLS-1$
+                      + a.name
+                      + tmp1CompOp
+                      + "'" //$NON-NLS-1$
+                      + transformBadCharForWhere(tmp1, tmp1CompOp)
+                      + "'" //$NON-NLS-1$
+                      + andOrString
+                      + a.name
+                      + tmp2CompOp
+                      + "'" //$NON-NLS-1$
+                      + transformBadCharForWhere(tmp2, tmp2CompOp)
+                      + "')"; //$NON-NLS-1$
+                }
+                else {
+                  wc =
+                    wc
+                      + "(" //$NON-NLS-1$
+                      + "lower(" //$NON-NLS-1$
+                      + a.name
+                      + ")" //$NON-NLS-1$
+                      + tmp1CompOp
+                      + "lower('" //$NON-NLS-1$
+                      + transformBadCharForWhere(tmp1, tmp1CompOp)
+                      + "')" //$NON-NLS-1$
+                      + andOrString
+                      + "lower(" //$NON-NLS-1$
+                      + a.name
+                      + ")" //$NON-NLS-1$
+                      + tmp2CompOp
+                      + "lower('" //$NON-NLS-1$
+                      + transformBadCharForWhere(tmp2,tmp2CompOp)
+                      + "'))"; //$NON-NLS-1$
+                }
+              }
+            }
+            else if (a.type == OBConstants.LONGVARCHAR ||
+                     a.type == OBConstants.CLOB ||
+                     a.type == OBConstants.BLOB) {
+              // LONG-Werte in der WHERE clause unberuecksichtigt
+              // lassen: Um den WHERE-String abzuschliessen haenge "1=1" an.
+              wc += "1 = 1 "; //$NON-NLS-1$
+            }
+            else {
+              logger.error("Type not implemented " + a.type); //$NON-NLS-1$
+            }
+          }
+        }
+      }
+      if (wc.trim().equals("")) { //$NON-NLS-1$
+        wc = " WHERE 1 = 1 " + wcModifier; // NOTE //$NON-NLS-1$
+      }
+      else {
+        wc = wc + " " + wcModifier; //$NON-NLS-1$
+      }
+      // rownum setzen, netter Ansatz, allerdings geht das nicht gut,
+      // da die WHERE-Clause VOR einer OrderBy-Clause ausgefuehrt wird und
+      // dadurch kann die erwartete Datenmenge stark abweichen.
+      // wc += OBDriver.getMaxRows(OBConfig.maxRows);
+    }
+    catch (Exception e) {
+      logger.error("error getting where clause from filter", e); //$NON-NLS-1$
+    }
+    return wc;
+  }
+
+  /** Baut einen String fuer die Where-Bedingung eines SQL Statements auf.
+      Ist der String = "", so wird er im whereClause nicht verwendet,
+      da "" in der Datenbank null entspricht.
+      @param colNames Die Spalten, die im Where beruecksichtigt werden sollen.
+      @param searchCaseSensitive Gibt an, ob Gross/Kleinschreibung wichtig ist
+      @param replacementsOut Zu ersetzende Werte
+      @return SQL-Where-Clause
+    */
+  public String getWhereClauseFromFilterForPreparedStatement(String[] colNames,
+                                                             boolean searchCaseSensitive,
+                                                             ArrayList<String> replacementsOut) {
+    String wc = ""; //$NON-NLS-1$
+    String tmp = ""; //$NON-NLS-1$
+    boolean flag;
+    OBAttribute a;
     
-    attribSelect = attribSelect + " FROM " + OBDriver.getTableName(context,context.getSchema(example.getProjectSchema()), //$NON-NLS-1$
-                                                                   example.getSQLName());
+    boolean withANDOR = false;
+    String andOrString = " OR "; //$NON-NLS-1$
+    boolean withWildcard = false;
+    boolean checkForNull = false;
+    String tmp1 = ""; //$NON-NLS-1$
+    String tmp2 = ""; //$NON-NLS-1$
+    int index = -1;
+    String tmpCompOp = CompOperator.like;
+    String tmp1CompOp = CompOperator.like;
+    String tmp2CompOp = CompOperator.like;
     
-    String sqlStringCount = "SELECT COUNT(*) FROM " + OBDriver.getTableName(context,context.getSchema(example.getProjectSchema()), //$NON-NLS-1$
-                                                                     example.getSQLName());
-    if (key > 0) {
-      sqlString = attribSelect + " WHERE " + example.getPrimaryKeyName() + " = " + key; //$NON-NLS-1$ //$NON-NLS-2$
-      sqlStringCount +=  " WHERE " + example.getPrimaryKeyName() + " = " + key; //$NON-NLS-1$ //$NON-NLS-2$
+    try {
+      for (int i = 0; i < attArr.length; i++) {
+        flag = false;
+        a = attArr[i];
+        tmp = a.value;
+    
+        // wird attribut in whereclause benutzt?
+        if (colNames == null) {
+          flag = true;
+        }
+        else {
+          for (int j = 0; j < colNames.length; j++) {
+            if (a.name.equals(colNames[j])) {
+              flag = true;
+            }
+          }
+        }
+        if (flag == true) {
+          // Test, ob auf (NOT) NULL abgefragt werden soll
+          checkForNull =
+            a.getCompOp().equals(CompOperator.isNull)
+              || a.getCompOp().equals(CompOperator.isNotNull);
+          // "" in Java entspricht null in der DB, is(Not)Null braucht keinen Wert
+          if (tmp.equals("!*") || tmp.equals("!%")) { //$NON-NLS-1$ //$NON-NLS-2$
+            if (wc.length() == 0)
+              wc = wc + " WHERE "; //$NON-NLS-1$
+            else
+              wc = wc + " AND "; //$NON-NLS-1$
+    
+            wc = wc + a.name + " IS NULL "; //$NON-NLS-1$
+          }
+          else if (tmp.length() > 0 || checkForNull) {
+            // wenn auf (NOT) NULL abgefragt werden soll, braucht im Attribut nichts drinzustehen
+            if (checkForNull) {
+              tmp = ""; //$NON-NLS-1$
+            }
+    
+            // am anfang where, dann immer and
+            if (wc.length() == 0)
+              wc = wc + " WHERE "; //$NON-NLS-1$
+            else
+              wc = wc + " AND "; //$NON-NLS-1$
+    
+            withANDOR = false;
+            andOrString = " OR "; //$NON-NLS-1$
+            withWildcard = false;
+    
+            tmp1 = ""; //$NON-NLS-1$
+            tmp2 = ""; //$NON-NLS-1$
+            index = -1;
+    
+            if (a.getCompOp().equals(CompOperator.defaultOp)) {
+              tmpCompOp = CompOperator.like;
+              tmp1CompOp = CompOperator.like;
+              tmp2CompOp = CompOperator.like;
+            }
+            else {
+              tmpCompOp = a.getCompOp();
+              tmp1CompOp = a.getCompOp();
+              tmp2CompOp = a.getCompOp();
+            }
+            if (tmpCompOp.equals(CompOperator.like) ||
+                tmpCompOp.equals(CompOperator.notLike)) {
+              if (a.getValue().indexOf('%')==-1 && 
+                  a.getValue().indexOf('*')==-1 && 
+                  a.getValue().indexOf('_')==-1) {
+                if (tmpCompOp.equals(CompOperator.like)) {
+                  tmpCompOp = CompOperator.equal;
+                  tmp1CompOp = CompOperator.equal;
+                  tmp2CompOp = CompOperator.equal;
+                } 
+                if (tmpCompOp.equals(CompOperator.notLike)) {
+                  tmpCompOp = CompOperator.notEqual;
+                  tmp1CompOp = CompOperator.notEqual;
+                  tmp2CompOp = CompOperator.notEqual;
+                } 
+              }
+            }
+            
+            // Suche mit "oder" ermoeglichen
+            if ((index = tmp.indexOf("||")) != -1) { //$NON-NLS-1$
+              withANDOR = true;
+              andOrString = " OR "; //$NON-NLS-1$
+              tmp1 = tmp.substring(0, index);
+              tmp2 = tmp.substring(index + 2, tmp.length());
+              if (tmp1.charAt(0) == '!') { // Ueberpuefung ob Logisch NOT
+                tmp1CompOp = CompOperator.negateCompOp(tmp1CompOp);
+                tmp1 = tmp1.substring(1, tmp1.length()); // ! Zeichen verwerfen
+              }
+              if (tmp2.charAt(0) == '!') { // Ueberpuefung ob Logisch NOT
+                tmp2CompOp = CompOperator.negateCompOp(tmp2CompOp);
+                tmp2 = tmp2.substring(1, tmp2.length()); // ! Zeichen verwerfen
+              }
+            }
+            else if ((index = tmp.indexOf("&&")) != -1) { //$NON-NLS-1$
+              withANDOR = true;
+              andOrString = " AND "; //$NON-NLS-1$
+              tmp1 = tmp.substring(0, index);
+              tmp2 = tmp.substring(index + 2, tmp.length());
+              if (tmp1.charAt(0) == '!') { // Ueberpuefung ob Logisch NOT
+                tmp1CompOp = CompOperator.negateCompOp(tmp1CompOp);
+                tmp1 = tmp1.substring(1, tmp1.length()); // ! Zeichen verwerfen
+              }
+              if (tmp2.charAt(0) == '!') { // Ueberpuefung ob Logisch NOT
+                tmp2CompOp = CompOperator.negateCompOp(tmp2CompOp);
+                tmp2 = tmp2.substring(1, tmp2.length()); // ! Zeichen verwerfen
+              }
+            }
+            else {
+              tmp = tmp.trim(); // Leerzeichen verwerfen
+              if (tmp.length() > 0
+                && tmp.charAt(0) == '!') { // Ueberpuefung ob Logisch NOT
+                tmpCompOp = CompOperator.negateCompOp(tmpCompOp);
+                tmp = tmp.substring(1, tmp.length()); // ! Zeichen verwerfen
+              }
+            }
+    
+            // bei Integers nur mit like % suchen, wenn ein Wildcard-Zeichen drin ist
+            if (a.type == OBConstants.INTEGER
+              || a.type == OBConstants.LONG
+              || a.type == OBConstants.DOUBLE
+              || a.type == OBConstants.BOOLEAN) {
+              if (tmp.indexOf('%') != -1
+                || tmp.indexOf('*') != -1
+                || tmp.indexOf('_') != -1) {
+                withWildcard = true;
+                // Test, ob Wildcards ueberhaupt zulaessig sind
+                if (!a.getCompOp().equals(CompOperator.defaultOp)
+                  && !a.getCompOp().equals(CompOperator.like)
+                  && !a.getCompOp().equals(CompOperator.notLike)) {
+                  throw new OBException("Wildcard not allowed"); //$NON-NLS-1$
+                }
+              }
+              else {
+                // "like" durch "=" und  "not like" durch "!=" ersetzen,
+                // alle anderen Operatoren bleiben !!!!
+                if (tmpCompOp.equals(CompOperator.like)) {
+                  tmpCompOp = CompOperator.equal;
+                }
+                else if (tmpCompOp.equals(CompOperator.notLike)) {
+                  tmpCompOp = CompOperator.notEqual;
+                }
+    
+                if (tmp1CompOp.equals(CompOperator.like)) {
+                  tmp1CompOp = CompOperator.equal;
+                }
+                else if (tmp1CompOp.equals(CompOperator.notLike)) {
+                  tmp1CompOp = CompOperator.notEqual;
+                }
+    
+                if (tmp2CompOp.equals(CompOperator.like)) {
+                  tmp2CompOp = CompOperator.equal;
+                }
+                else if (tmp2CompOp.equals(CompOperator.notLike)) {
+                  tmp2CompOp = CompOperator.notEqual;
+                }
+              }
+            }
+    
+            // unterscheide die verschiedenen typen
+            // int, date und string
+            if (a.type == OBConstants.INTEGER
+              || a.type == OBConstants.BOOLEAN
+              || a.type == OBConstants.LONG
+              || a.type == OBConstants.DOUBLE) {
+              if (checkForNull) {
+                // hier kein rechter Operand
+                wc = wc + a.name + tmpCompOp;
+              }
+              else if (withWildcard) {
+                // es ist ein SuchZeichen drin
+                if (!withANDOR) { // normal
+                  wc = wc + a.name + tmpCompOp + "?"; //$NON-NLS-1$
+                  replacementsOut.add(transformBadCharForWhere(tmp, tmpCompOp));
+                }
+                else {
+                  wc =
+                    wc
+                      + "(" //$NON-NLS-1$
+                      + a.name
+                      + tmp1CompOp
+                      + "?" //$NON-NLS-1$
+                      + andOrString
+                      + a.name
+                      + tmp2CompOp
+                      + "?" //$NON-NLS-1$
+                      + "')"; //$NON-NLS-1$
+                  replacementsOut.add(transformBadCharForWhere(tmp1, tmp1CompOp));
+                  replacementsOut.add(transformBadCharForWhere(tmp2, tmp2CompOp));
+                }
+              }
+              else {
+                // kein Suchzeichen
+                if (!withANDOR) { // normal
+                  wc = wc + a.name + tmpCompOp + '?'; //$NON-NLS-1$ 
+                  replacementsOut.add(transformBadCharForWhere(tmp, tmpCompOp));
+                }
+                else {
+                  wc = wc
+                      + "(" //$NON-NLS-1$
+                      + a.name
+                      + tmp1CompOp
+                      + "?" //$NON-NLS-1$
+                      + andOrString
+                      + a.name
+                      + tmp2CompOp
+                      + "?" //$NON-NLS-1$
+                      + ")"; //$NON-NLS-1$
+                  replacementsOut.add(transformBadCharForWhere(tmp1, tmp1CompOp));
+                  replacementsOut.add(transformBadCharForWhere(tmp2, tmp2CompOp));
+                }
+              }
+            }
+            else if (a.type == OBConstants.DATE) {
+              if (checkForNull) {
+                // hier kein rechter Operand
+                wc = wc + a.name + tmpCompOp;
+              }
+              else if (!withANDOR) { // normal
+                wc =
+                  wc
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_DATE_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmpCompOp
+                    + "?"; //$NON-NLS-1$
+                replacementsOut.add(transformBadCharForWhere(tmp, tmpCompOp));
+              }
+              else {
+                wc =
+                  wc
+                    + "(" //$NON-NLS-1$
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_DATE_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmp1CompOp
+                    + "?" //$NON-NLS-1$
+                    + andOrString
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_DATE_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmp2CompOp
+                    + "?)"; //$NON-NLS-1$
+                replacementsOut.add(transformBadCharForWhere(tmp1, tmp1CompOp));
+                replacementsOut.add(transformBadCharForWhere(tmp2, tmp2CompOp));
+              }
+            }
+            else if (a.type == OBConstants.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+              if (checkForNull) {
+                // hier kein rechter Operand
+                wc = wc + a.name + tmpCompOp;
+              }
+              else if (!withANDOR) { // normal
+                wc =
+                  wc
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_TIMESTAMP_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmpCompOp
+                    + "?"; //$NON-NLS-1$
+                replacementsOut.add(transformBadCharForWhere(tmp, tmpCompOp));
+              }
+              else {
+                wc =
+                  wc
+                    + "(" //$NON-NLS-1$
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_TIMESTAMP_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmp1CompOp
+                    + "?" //$NON-NLS-1$
+                    + andOrString
+                    + "TO_CHAR(" //$NON-NLS-1$
+                    + a.name
+                    + ",'" //$NON-NLS-1$
+                    + (a.getFormatMask()==null || a.getFormatMask().length()==0 ?  OBConstants.NLS_TIMESTAMP_FORMAT : a.getFormatMask())
+                    + "')" //$NON-NLS-1$
+                    + tmp2CompOp
+                    + "?)"; //$NON-NLS-1$
+                replacementsOut.add(transformBadCharForWhere(tmp1, tmp1CompOp));
+                replacementsOut.add(transformBadCharForWhere(tmp2, tmp2CompOp));
+              }
+            }
+            else if (a.type == OBConstants.STRING) {
+              if (checkForNull) {
+                // hier kein rechter Operand
+                wc = wc + a.name + tmpCompOp;
+              }
+              else if (!withANDOR) { // normal
+                // bugz 7002
+                if ((a.getCaseSensitivity() == OBAttribute.CaseSensitivity.DEFAULT && searchCaseSensitive) || 
+                    (a.getCaseSensitivity() == OBAttribute.CaseSensitivity.SENSITIVE)) {
+                  wc =
+                    wc
+                      + a.name
+                      + tmpCompOp
+                      + "?"; //$NON-NLS-1$
+                  replacementsOut.add(transformBadCharForWhere(tmp, tmpCompOp));
+                }
+                else {
+                  wc =
+                    wc
+                      + "lower(" //$NON-NLS-1$
+                      + a.name
+                      + ")" //$NON-NLS-1$
+                      + tmpCompOp
+                      + "lower(" //$NON-NLS-1$
+                      + "?)"; //$NON-NLS-1$
+                  replacementsOut.add(transformBadCharForWhere(tmp, tmpCompOp));
+                }
+              }
+              else {
+                // bugz 7002
+                if ((a.getCaseSensitivity() == OBAttribute.CaseSensitivity.DEFAULT && searchCaseSensitive) || 
+                    (a.getCaseSensitivity() == OBAttribute.CaseSensitivity.SENSITIVE)) {
+                  wc =
+                    wc
+                      + "(" //$NON-NLS-1$
+                      + a.name
+                      + tmp1CompOp
+                      + "?" //$NON-NLS-1$
+                      + andOrString
+                      + a.name
+                      + tmp2CompOp
+                      + "?)"; //$NON-NLS-1$
+                  replacementsOut.add(transformBadCharForWhere(tmp1, tmp1CompOp));
+                  replacementsOut.add(transformBadCharForWhere(tmp2, tmp2CompOp));
+                }
+                else {
+                  wc =
+                    wc
+                      + "(" //$NON-NLS-1$
+                      + "lower(" //$NON-NLS-1$
+                      + a.name
+                      + ")" //$NON-NLS-1$
+                      + tmp1CompOp
+                      + "lower(" //$NON-NLS-1$
+                      + "?)" //$NON-NLS-1$
+                      + andOrString
+                      + "lower(" //$NON-NLS-1$
+                      + a.name
+                      + ")" //$NON-NLS-1$
+                      + tmp2CompOp
+                      + "lower(" //$NON-NLS-1$
+                      + "?))"; //$NON-NLS-1$
+                  replacementsOut.add(transformBadCharForWhere(tmp1, tmp1CompOp));
+                  replacementsOut.add(transformBadCharForWhere(tmp2, tmp2CompOp));
+                }
+              }
+            }
+            else if (a.type == OBConstants.LONGVARCHAR ||
+                     a.type == OBConstants.CLOB ||
+                     a.type == OBConstants.BLOB) {
+              // LONG-Werte in der WHERE clause unberuecksichtigt
+              // lassen: Um den WHERE-String abzuschliessen haenge "1=1" an.
+              wc += "1 = 1 "; //$NON-NLS-1$
+            }
+            else {
+              logger.error("Type not implemented " + a.type); //$NON-NLS-1$
+            }
+          }
+        }
+      }
+      if (wc.trim().equals("")) { //$NON-NLS-1$
+        wc = " WHERE 1 = 1 " + wcModifier; // NOTE //$NON-NLS-1$
+      }
+      else {
+        wc = wc + " " + wcModifier; //$NON-NLS-1$
+      }
+      // rownum setzen, netter Ansatz, allerdings geht das nicht gut,
+      // da die WHERE-Clause VOR einer OrderBy-Clause ausgefuehrt wird und
+      // dadurch kann die erwartete Datenmenge stark abweichen.
+      // wc += OBDriver.getMaxRows(OBConfig.maxRows);
     }
-    else {
-      sqlString = attribSelect + " " + whereClause; //$NON-NLS-1$
-      sqlStringCount += " " + whereClause; //$NON-NLS-1$
+    catch (Exception e) {
+      logger.error("error getting where clause from filter", e); //$NON-NLS-1$
     }
-    String[] sqls = new String[]{sqlString,sqlStringCount};
-    return handleDataPrivacy(context, sqls);
+    return wc;
+  }
+  // ---------------------------------------------------------------------------
+  // ------- SQL-Hilfsmethoden / Exception-Handling ----------------------------
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Eine Methode, die das replaceAll von Java 1.4 ersetzen soll
+   * @param str Ausgangs-String
+   * @param rep Zu ersetzender String
+   * @param wth Ersetzen mit
+   * @return String mit Ersetzungen
+   */
+  public static final String strReplaceAll(String str,
+                                           String rep,
+                                           String wth) {
+    StringBuffer sb = new StringBuffer();
+    int beginIndex = 0;
+    int endIndex = 0;
+
+    for (beginIndex = str.indexOf(rep, endIndex);
+      beginIndex != -1;
+      beginIndex = str.indexOf(rep, endIndex)) {
+      sb.append(str.substring(endIndex, beginIndex)).append(wth);
+      endIndex = beginIndex + rep.length();
+    }
+    sb.append(str.substring(endIndex, str.length()));
+    return sb.toString();
   }
 
   
-  /**
-   * @param context
-   * @param sqlString
-   * @return ersetztes Projekt-Schema
-   * @throws OBException
+  
+  
+  
+  /** 
+   * Ersetzt in einem String das "'"-Zeichen durch "''" und "*" durch "%".
+   * Wird fuer das Bauen der WHERE-Clause verwendet.
+   * @param str String, in dem die Ersetzung stattfinden soll
+   * @param compOp Vergleichsoperator
+   * @return Ersetzten String
+   * 
    */
-  protected static String replaceProjectSchemata(OBContext context, String sqlString) throws OBException {
-    String retVal = sqlString;
-    Enumeration<String> en = context.getSchemata();
-    while (en.hasMoreElements()) {
-      String project = en.nextElement();
-      retVal = retVal.replaceAll(START_PROJECT_SCHEMA + project + END_PROJECT_SCHEMA, 
-                                       context.getSchema(project));
+  public static final String transformBadCharForWhere(String str, String compOp) {
+    String outStr = str;
+    if (preparedStatmentLevel == PREPAREDSTATMENTLEVEL_NONE) {  // nur im Falle von "plain" WHERE Clause: ' durch '' ersetzen 
+      //String outStr = str.replaceAll("\'","''");
+      outStr = strReplaceAll(str, "\'", "''"); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+    if (compOp.equals(CompOperator.like) || compOp.equals(CompOperator.notLike)) { // Bugz 7030
+     outStr = outStr.replace('*', '%');
+    } 
+    return outStr;
+  }
+
+  /** 
+   * Ersetzt das "'" Zeichen in einem String durch "''".
+   * Wird fuer den Zusammenbau von INSERTs und UPDATEs benoetigt. 
+   * @param str String, in dem die Ersetzung stattfinden soll
+   * @return Ersetzten String
+   * 
+   */
+  public static final String transformBadCharForDML(String str) {
+    if (preparedStatmentLevel == PREPAREDSTATMENTLEVEL_NONE) {  // nur im Falle von "plain" INSERT/UPDATE: ' durch '' ersetzen 
+      //return str.replaceAll("\'","''");
+      return strReplaceAll(str, "\'", "''"); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+    return str;
+  }
+
+  /** Ersetzt einen String,falls er = null ist, durch einen Defaultstring
+      @param str zu untersuchender String
+      @param nullStr Defaultstring (z.B. "")
+      @return str, wenn str null war, ansonsten nullStr
+  */
+  public static final String ifnull(String str, String nullStr) {
+    if (str == null) {
+      return nullStr;
+    }
+    else {
+      return str;
+    }
+  }
+
+  /** Wandelt ein OBDBOject in einen Hashtable um (key = attribute.name, value = attribute.value) 
+      @return Hashtable, der dem OBDBObject entspricht
+  */
+  public Hashtable<String,String> convertToHashtable() {
+    Hashtable<String,String> retVal = new Hashtable<String,String>();
+    for (int i = 0; i < attArr.length; i++) {
+      retVal.put(attArr[i].getName(), attArr[i].getValue());
+    }
+    return retVal;
+  }
+
+  /** Wandelt ein OBDBOject in eine HashMap um (key = attribute.name, value = attribute.value) 
+      @return HashMap, der dem OBDBObject entspricht
+   */
+  public HashMap<String,Object> convertToHashMap() {
+    HashMap<String,Object> retVal = new HashMap<String,Object>();
+    for (int i = 0; i < attArr.length; i++) {
+      retVal.put(attArr[i].getName(), attArr[i].getValue());
     }
     return retVal;
   }
   
-  
-  /** Methode, die ein SQL-Select ausfuehrt
-   * @param context
-      @param example Beispielobjekt, benoetigt fuer Typ-Informationen
-      @param sqlStringArray SQL-Statement ohne ORDER BY-Clause fuer select[0] und count[1]
-      @param orderBy ORDER BY-Clause
-   * @param ignoreFirstLines Anzahl der Zeilen, die am Anfang uebersprungen werden sollen
-      @param maxRows Maximale Anzahl selektierter Zeilen
-      @param attribs Array zu Selektierender Spalten - null bedeutet: Nimm default
-      @return ListenObject mit gefundenen Werten
-   * @throws OBException
+  /** Wandelt ein OBDBOject in eine HashMap um (key = attribute.name, value = attribute.value) 
+   * @param key Schluessel
+   * @return HashMap, der dem OBDBObject entspricht
    */
-  @SuppressWarnings("unchecked")
-  public static <E extends OBObject> OBListObject<E> _executeSqlStatement(OBContext context,
-                                                                          E example, 
-                                                                          String[] sqlStringArray,
-                                                                          String orderBy,
-                                                                          int ignoreFirstLines,
-                                                                          int maxRows,
-                                                                          OBAttribute[] attribs) throws OBException {
-    if (attribs != null) {
-      example.attArr = attribs;
+  public HashMap<String,Object> convertToHashMap(String key) {
+    HashMap<String,Object> retVal = new HashMap<String,Object>();
+    retVal.put(key, convertToHashMap());
+    return retVal;
+  }
+
+  /** Wandelt einen Hashtable in ein OBDBOject um (key = attribute.name, value = attribute.value) 
+      @param ht Hashtable, der dem OBDBObject entspricht
+      @throws OBException wenn nicht alle Attribute im Hashtable vorhanden sind.
+  */
+  public void convertFromHashtable(Hashtable<String,String> ht) throws OBException {
+    for (int i = 0; i < attArr.length; i++) {
+      if (ht.containsKey(attArr[i].getName())) {
+        attArr[i].setValue(ht.get(attArr[i].getName()));
+      }
+      else {
+        throw new OBException(OBException.OBErrorNumber.attribNotFoundInHashtable1, 
+                              new String[] {attArr[i].getName()});
+      }
     }
-    OBListObject<E> res = new OBListObject<E>();
-    res.setFirstLine(ignoreFirstLines);
-    int count;
-    String sqlString = replaceProjectSchemata(context,sqlStringArray[0] + " " + orderBy); //$NON-NLS-1$
-    logger.debug(XynaContextFactory.getSessionData(context) + 
-                 example.getTableName()+": "+sqlString); //$NON-NLS-1$
-    
-    Statement stmt=null;
-    OBConnectionInterface corCon= context.getDataConnection();
+  }
+
+  /** Wandelt einen long-Wert in einen String um (noetig fuer xmlrpc)
+      @param value der long-Wert
+      @return String-Wert
+  */
+  public static String longToString(long value) {
+    return Long.toString(value);
+  }
+
+  /** Wandelt einen String-Wert in einen String um (noetig fuer xmlrpc)
+      @param value der String-Wert
+      @return String-Wert
+      @exception NumberFormatException wenn der String falsch ist
+  */
+  public static long stringToLong(String value) throws NumberFormatException {
+    return Long.valueOf(value).longValue();
+  }
+
+  // ---------------------------------------------------------------------------
+  // ------- Methoden fuer XOBTableModel ---------------------------------------
+  // ---------------------------------------------------------------------------
+
+  /** Fuer das Anzeigen in Tabellen */
+  protected String[] selectCols = null;
+  protected String[] selectColNames = null;
+
+  /** Setzt Select-Spalten und Spalten-Ueberschriften auf einen Default-Wert */
+  public void setSelectColsDefault() {
+    selectCols = new String[attArr.length];
+    selectColNames = new String[attArr.length];
+    for (int i = 0; i < attArr.length; i++) {
+      selectCols[i] = attArr[i].getName();
+      selectColNames[i] = attArr[i].getName();
+    }
+  }
+
+  /** Setzt Select-Spalten und Spalten-Ueberschriften auf die uebergebenen Werte 
+   * @param sc Spaltennamen
+   * @param names Ueberschriften
+   * @throws OBException Fehler*/
+  public void setSelectCols(String[] sc, String[] names) throws OBException {
+    if (sc.length != names.length) {
+      throw new OBException(OBException.OBErrorNumber.arrayLengthDifferent);
+    }
+    selectCols = new String[sc.length];
+    selectColNames = new String[names.length];
+    for (int i = 0; i < sc.length; i++) {
+      selectCols[i] = sc[i];
+      selectColNames[i] = names[i];
+    }
+  }
+
+  /** Gibt Select-Spalten zurueck 
+   * @return Select-Spalten
+  */
+  public String[] getSelectCols() {
+    return selectCols;
+  }
+
+  /** Gibt Select-Spalten-Ueberschriften zurueck 
+   * @return SelectColName
+   */
+  public String[] getSelectColNames() {
+    return selectColNames;
+  }
+
+  /** Gibt die Spaltenueberschrift zurueck 
+   * @param columnIndex Spaltennummer
+   * @return Spaltenname der Spalte columnIndex
+   */
+  public String getColumnName(int columnIndex) {
+    String name = ""; //$NON-NLS-1$
     try {
-      if (example instanceof OBDBObject) {
-        corCon = ((OBDBObject)example).getCorrectConnection(context);
+      if (selectColNames.length > columnIndex && columnIndex >= 0) {
+        return selectColNames[columnIndex];
       }
-      stmt = corCon.createStatement();
-      OBAttribute a;
-      count = 0;
-      Class<? extends OBObject> cl = example.getClass();
-      ResultSet rs = stmt.executeQuery(sqlString);
-      String value = ""; //$NON-NLS-1$
-      E to;
-      // die ignoreFirstLiness ueberlesen
-      while(!corCon.isClosed() && 
-            count<ignoreFirstLines && rs.next()
-            ) {
-        count++;
-      }
-      while(!corCon.isClosed() && 
-            rs.next() && count<maxRows
-            ) {
-        // hier wird reflection benutzt!
-        to = (E) cl.newInstance();
-        
-        if (attribs != null) {
-          to.attArr = new OBAttribute[attribs.length];
+    }
+    catch (Exception e) {
+      logger.debug("error getting column name at index "+columnIndex, e);//$NON-NLS-1$
+    }
+    return name;
+  }
+
+  /** Gibt die Anzahl der gewaehlten Spalten zurueck 
+   * @return Anzahl der Spalten 
+   */
+  public int getColumnCount() {
+    return selectCols.length;
+  }
+
+  
+  /**
+   * Testet, ob irgendein Wert in der Zeile gesetzt ist 
+   * @return true, wenn leer
+   */
+  public boolean isEmpty() {
+    for (int i = 0; i < selectCols.length; i++) {
+      String attName = selectCols[i];
+      for (int j = 0; j < attArr.length; j++) {
+        if (attArr[j].getName().equals(attName)) {
+          if (attArr[j].isNotNull()) {
+            return false;
+          }
         }
-        count++;
+      }
+    }
+    return true;
+  }
 
-        for (int j=0; j<example.attArr().length; j++) {
-          if (attribs != null) {
-            to.attArr[j] = new OBAttribute(attribs[j].name, attribs[j].type, attribs[j].length,attribs[j].nullable);
-          }
-          a = to.attArr[j];
-          
-          if (a.type!=OBConstants.BLOB) {
-            value = ifnull(rs.getString(j+1),""); //$NON-NLS-1$
-          }
-          switch(a.type) {
-          case OBConstants.INTEGER:
-          case OBConstants.LONG:
-          case OBConstants.BOOLEAN:
-            // getString liefert 0.0 statt 0 bei int-Wert 0
-            if (value.equals("0.0")) value = "0"; //$NON-NLS-1$ //$NON-NLS-2$
-            break;
-          case OBConstants.DOUBLE:
-          case OBConstants.DATE:
-          case OBConstants.TIMESTAMP_WITH_LOCAL_TIME_ZONE:
-          case OBConstants.STRING:
-            break;
-          case OBConstants.LONGVARCHAR:
-            break;
-          case OBConstants.CLOB:
-            Clob clob = rs.getClob(j+1);
-            if (clob!=null) {
-              BufferedReader br = new BufferedReader(clob.getCharacterStream());
-              String aux;
-              StringBuffer strb = new StringBuffer();
-              while ((aux = br.readLine())!= null) {
-                // Sicherung gegen OutOfMemory
-                if (maxClobLength!=OBAttribute.NULL && strb.length()+aux.length()>maxClobLength) {
-                  strb.append(aux.substring(0,maxClobLength-strb.length()));
-                  break;
-                }
-                strb.append(aux).append('\n'); // Zeilenumbruch!  
-              }
-              br.close();
-
-              value= strb.toString();
-
-             // Sicherung gegen OutOfMemory
-//              int cloblength = (int)clob.length();
-//              if (maxClobLength!=OBAttribute.NULL && cloblength>maxClobLength) {
-//                cloblength=maxClobLength;
-//              }
-//              byte[] rawBuf = new byte[cloblength];
-//              is.read(rawBuf);
-//              value = new String(rawBuf);
-//              is.close();
+  /** Sucht anhand der Select-Spalten-Liste den Wert 
+   * @param col Spaltennummer
+   * @return Wert in Spalte col 
+   */
+  public Object getValueAt(int col) {
+    Object cell = ""; //$NON-NLS-1$
+    try {
+      if (selectCols.length > col && col >= 0) {
+        String attName = selectCols[col];
+        for (int i = 0; i < attArr.length; i++) {
+          if (attArr[i].getName().equals(attName)) {
+            switch (attArr[i].getType()) {
+              case OBConstants.INTEGER :
+                cell = ""; //$NON-NLS-1$
+                if (!attArr[i].isNull())
+                  cell = new Integer(attArr[i].getIntValue());
+                break;
+              case OBConstants.STRING :
+                cell = attArr[i].getValue();
+                break;
+              case OBConstants.LONG :
+                cell = ""; //$NON-NLS-1$
+                if (!attArr[i].isNull())
+                  cell = new Long(attArr[i].getLongValue());
+                break;
+              case OBConstants.DATE :
+                cell = attArr[i].getValue();
+                break;
+              case OBConstants.TIMESTAMP_WITH_LOCAL_TIME_ZONE :
+                cell = attArr[i].getValue();
+                break;
+              case OBConstants.BOOLEAN :
+                cell = new Boolean(false);
+                if (!attArr[i].isNull())
+                  cell = new Boolean(attArr[i].getBooleanValue());
+                break;
+              case OBConstants.DOUBLE :
+                cell = new Double(OBConstants.IRREGULAR_INT);
+                if (!attArr[i].isNull())
+                  cell = new Double(attArr[i].getDoubleValue());
+                break;
             }
-            break;
-          case OBConstants.BLOB:
-            Blob blob = rs.getBlob(j+1);
-            if (blob!=null) {
-              InputStream is = blob.getBinaryStream();
-              byte[] rawBuf = new byte[(int)blob.length()];
-              is.read(rawBuf);
-              is.close();
-              a.setValue(rawBuf);
+          }
+        }
+      }
+    }
+    catch (Exception e) {
+      logger.debug("error getting value at " + col, e);//$NON-NLS-1$
+    }
+    return cell;
+  }
+  
+  public String getStringValueAt(int col) {
+    try {
+      if (selectCols.length > col && col >= 0) {
+        String attName = selectCols[col];
+        for (int i = 0; i < attArr.length; i++) {
+          if (attArr[i].getName().equals(attName)) {
+            return attArr[i].getValue();
+          }
+        }
+      }
+    }
+    catch (Exception e) {
+      logger.debug("error getting value at " + col, e);//$NON-NLS-1$
+    }
+    return ""; //$NON-NLS-1$
+  }
+
+  /** Gibt die Klasse des Attributes an 
+   * @param col Spaltennummer
+   * @return Klasse des Attributes
+   */
+  public Class<?> getColumnClass(int col) {
+    Class<?> klass = new Object().getClass();
+    try {
+      if (selectCols.length > col && col >= 0) {
+        String attName = selectCols[col];
+        for (int i = 0; i < attArr.length; i++) {
+          if (attArr[i].getName().equals(attName)) {
+            switch (attArr[i].getType()) {
+              case OBConstants.INTEGER :
+                klass = new Integer(0).getClass();
+                break;
+              case OBConstants.STRING :
+                klass = new String("").getClass(); //$NON-NLS-1$
+                break;
+              case OBConstants.LONG :
+                klass = new Integer(0).getClass();
+                break;
+              case OBConstants.DATE :
+                klass = new String("").getClass(); //$NON-NLS-1$
+                break;
+              case OBConstants.TIMESTAMP_WITH_LOCAL_TIME_ZONE :
+                klass = new String("").getClass(); //$NON-NLS-1$
+                break;
+              case OBConstants.DOUBLE :
+                klass = new Double(0.0).getClass();
+                break;
+              case OBConstants.BOOLEAN :
+                klass = new Boolean(false).getClass();
+                break;
+            }
+          }
+        }
+      }
+    }
+    catch (Exception e) {
+      logger.debug("error getting class at " + col, e);//$NON-NLS-1$
+    }
+    return klass;
+  }
+
+  /** Sucht anhand der Select-Spalten-Liste den Wert 
+   * @param value Zu setzender Wert
+   * @param col Spaltennummer
+   */
+  public void setValueAt(Object value, int col) {
+    try {
+      if (selectCols.length > col && col >= 0) {
+        String attName = selectCols[col];
+        for (int i = 0; i < attArr.length; i++) {
+          if (attArr[i].getName().equals(attName)) {
+            if (value.toString().equals("")) { //$NON-NLS-1$
+              attArr[i].setNull();
             }
             else {
-              a.bvalue=new byte[0];
-            }
-            break;
-          default:
-            throw new SQLException(OBConstants.WRONG_ATTRIBUTE_TYPE);
-          }
-          
-          a.setValue(value);
-        }
-        res.add(to);
-      } // while(rs.next())
-      stmt.close();
-      res.setTotalLines(count);
-      try {
-        if (count>=maxRows && 
-            sqlStringArray.length>1 && 
-            sqlStringArray[1]!=null && 
-            sqlStringArray[1].length()>0) {
-          res.setTotalLines(executeCountStatement(context,example,sqlStringArray[1]));      
-        }
-      } 
-      catch (Exception e) {
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error executing statement", e);//$NON-NLS-1$
-      }
-    }
-    catch (SQLException e) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error executing statement", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) stmt.close();
-      }
-      catch(Exception exp) {
-        //System.exit(1);
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-        throw new OBException(OBException.OBErrorNumber.sqlFatalException); 
-      }
-      String tmpStr = handleSQLException(context,e, corCon);
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[] {e.getMessage() + ": "+ tmpStr}); //$NON-NLS-1$
-    }
-    catch( Exception e ) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error executing statement", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) stmt.close();
-      }
-      catch(Exception exp) {
-        //System.exit(1);
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-        throw new OBException(OBException.OBErrorNumber.sqlFatalException); 
-      }
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[]{e.getMessage()});
-    }
-    return res;
-  }
-
-  /** Methode, die ein SQL-Select ausfuehrt
-   * @param context
-      @param example Beispielobjekt, benoetigt fuer Typ-Informationen
-      @param sqlStringArray SQL-Statement ohne ORDER BY-Clause fuer select[0] und count[1]
-      @param orderBy ORDER BY-Clause
-   * @param ignoreFirstLines Anzahl der Zeilen, die am Anfang uebersprungen werden sollen
-      @param maxRows Maximale Anzahl selektierter Zeilen
-      @param attribs Array zu Selektierender Spalten - null bedeutet: Nimm default
-      @return ListenObject mit gefundenen Werten
-   * @throws OBException
-   */
-  @SuppressWarnings("unchecked")
-  public static <E extends OBObject> OBListObject<E> _executePreparedSqlStatement(OBContext context,
-                                                                                  E example, 
-                                                                                  String[] sqlStringArray,
-                                                                                  ArrayList<String> replArray,
-                                                                                  String orderBy,
-                                                                                  int ignoreFirstLines,
-                                                                                  int maxRows,
-                                                                                  OBAttribute[] attribs) throws OBException {
-    if (attribs != null) {
-      example.attArr = attribs;
-    }
-    OBListObject<E> res = new OBListObject<E>();
-    res.setFirstLine(ignoreFirstLines);
-    int count;
-    String sqlString = replaceProjectSchemata(context,sqlStringArray[0] + " " + orderBy); //$NON-NLS-1$
-    logger.debug(XynaContextFactory.getSessionData(context) + 
-                 example.getTableName()+": "+getPreparedStatementStringForDebug(sqlString, replArray, null, OBAttribute.NULL, -1, example.attArr)); //$NON-NLS-1$
-    
-    PreparedStatement stmt=null;
-    OBConnectionInterface corCon= context.getDataConnection();
-    try {
-      if (example instanceof OBDBObject) {
-        corCon = ((OBDBObject)example).getCorrectConnection(context);
-      }
-      stmt = corCon.prepareStatement(sqlString);
-      for (int i = 0; replArray!=null && i < replArray.size(); i++) {
-        stmt.setString(i+1, replArray.get(i));
-      }
-      OBAttribute a;
-      count = 0;
-      Class<? extends OBObject> cl = example.getClass();
-      ResultSet rs = stmt.executeQuery();
-      String value = ""; //$NON-NLS-1$
-      E to;
-      // die ignoreFirstLiness ueberlesen
-      while(!corCon.isClosed() && 
-            count<ignoreFirstLines && rs.next()
-            ) {
-        count++;
-      }
-      while(!corCon.isClosed() && 
-            rs.next() && count<maxRows
-            ) {
-        // hier wird reflection benutzt!
-        to = (E) cl.newInstance();
-        
-        if (attribs != null) {
-          to.attArr = new OBAttribute[attribs.length];
-        }
-        count++;
-
-        for (int j=0; j<example.attArr().length; j++) {
-          if (attribs != null) {
-            to.attArr[j] = new OBAttribute(attribs[j].name, attribs[j].type, attribs[j].length,attribs[j].nullable);
-          }
-          a = to.attArr[j];
-          
-          if (a.type!=OBConstants.BLOB) {
-            value = ifnull(rs.getString(j+1),""); //$NON-NLS-1$
-          }
-          switch(a.type) {
-          case OBConstants.INTEGER:
-          case OBConstants.LONG:
-          case OBConstants.BOOLEAN:
-            // getString liefert 0.0 statt 0 bei int-Wert 0
-            if (value.equals("0.0")) value = "0"; //$NON-NLS-1$ //$NON-NLS-2$
-            break;
-          case OBConstants.DOUBLE:
-          case OBConstants.DATE:
-          case OBConstants.TIMESTAMP_WITH_LOCAL_TIME_ZONE:
-          case OBConstants.STRING:
-            break;
-          case OBConstants.LONGVARCHAR:
-            break;
-          case OBConstants.CLOB:
-            Clob clob = rs.getClob(j+1);
-            if (clob!=null) {
-              BufferedReader br = new BufferedReader(clob.getCharacterStream());
-              String aux;
-              StringBuffer strb = new StringBuffer();
-              while ((aux = br.readLine())!= null) {
-                // Sicherung gegen OutOfMemory
-                if (maxClobLength!=OBAttribute.NULL && strb.length()+aux.length()>maxClobLength) {
-                  strb.append(aux.substring(0,maxClobLength-strb.length()));
+              switch (attArr[i].getType()) {
+                case OBConstants.INTEGER :
+                  attArr[i].setValue(Integer.parseInt(value.toString()));
                   break;
-                }
-                strb.append(aux).append('\n'); // Zeilenumbruch!  
+                case OBConstants.STRING :
+                  attArr[i].setValue(value.toString());
+                  break;
+                case OBConstants.LONG :
+                  attArr[i].setValue(Long.parseLong(value.toString()));
+                  break;
+                case OBConstants.DATE :
+                  attArr[i].setValue(value.toString());
+                  break;
+                case OBConstants.TIMESTAMP_WITH_LOCAL_TIME_ZONE :
+                  attArr[i].setValue(value.toString());
+                  break;
+                case OBConstants.BOOLEAN :
+                  attArr[i].setValue(
+                    (new Boolean(value.toString())).booleanValue());
+                  break;
+                case OBConstants.DOUBLE :
+                  attArr[i].setValue(Double.parseDouble(value.toString()));
+                  break;
               }
-              br.close();
-
-              value= strb.toString();
-
-             // Sicherung gegen OutOfMemory
-//              int cloblength = (int)clob.length();
-//              if (maxClobLength!=OBAttribute.NULL && cloblength>maxClobLength) {
-//                cloblength=maxClobLength;
-//              }
-//              byte[] rawBuf = new byte[cloblength];
-//              is.read(rawBuf);
-//              value = new String(rawBuf);
-//              is.close();
             }
-            break;
-          case OBConstants.BLOB:
-            Blob blob = rs.getBlob(j+1);
-            if (blob!=null) {
-              InputStream is = blob.getBinaryStream();
-              byte[] rawBuf = new byte[(int)blob.length()];
-              is.read(rawBuf);
-              is.close();
-              a.setValue(rawBuf);
-            }
-            else {
-              a.bvalue=new byte[0];
-            }
-            break;
-          default:
-            throw new SQLException(OBConstants.WRONG_ATTRIBUTE_TYPE);
           }
-          
-          a.setValue(value);
         }
-        res.add(to);
-      } // while(rs.next())
-      stmt.close();
-      res.setTotalLines(count);
-      try {
-        if (count>=maxRows && 
-            sqlStringArray.length>1 && 
-            sqlStringArray[1]!=null && 
-            sqlStringArray[1].length()>0) {
-          res.setTotalLines(executePreparedCountStatement(context,example,sqlStringArray[1],replArray));
-        }
+      }
+    }
+    catch (Exception e) {
+      logger.debug("error setting value at " + col, e);//$NON-NLS-1$
+    }
+  }
+
+  /* derzeit nicht eingesetzt
+  public String isValueValid(String attribKey, String attribValue) {
+    return ""; //$NON-NLS-1$
+  }
+  */
+
+  /**
+   * Liefert den Typ als in gemaess den Konstanten
+   * @param attribKey Attributname
+   * @return Typ des Attributes
+   */
+  public int getType(String attribKey)  {
+    for (int i=0; i<attArr.length; i++) {
+      if (attArr[i].getName().equals(attribKey)) { 
+        return attArr[i].getType();
+      }
+    }
+    return OBConstants.IRREGULAR_INT;
+  }
+
+  public String getValue(String attribKey) {
+    for (int i=0; attArr!=null && i<attArr.length; i++) {
+      if (attArr[i].getName().equals(attribKey)) return attArr[i].getValue();
+    }
+    return null;
+  }
+
+  public String getValueIC(String attribKey) {
+    for (int i=0; i<attArr.length; i++) {
+      if (attArr[i].getName().equalsIgnoreCase(attribKey)) return attArr[i].getValue();
+    }
+    return null;
+  }
+
+  public void setValueIC(String attribKey, String val) {
+    for (int i=0; i<attArr.length; i++) {
+      if (attArr[i].getName().equalsIgnoreCase(attribKey)) {
+        attArr[i].setValue(val); 
+        return;
       } 
-      catch (Exception e) {
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error executing statement", e);//$NON-NLS-1$
-      }
     }
-    catch (SQLException e) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error executing statement", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) stmt.close();
-      }
-      catch(Exception exp) {
-        //System.exit(1);
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-        throw new OBException(OBException.OBErrorNumber.sqlFatalException); 
-      }
-      String tmpStr = handleSQLException(context,e, corCon);
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[] {e.getMessage() + ": "+ tmpStr}); //$NON-NLS-1$
-    }
-    catch( Exception e ) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error executing statement", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) stmt.close();
-      }
-      catch(Exception exp) {
-        //System.exit(1);
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-        throw new OBException(OBException.OBErrorNumber.sqlFatalException); 
-      }
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[]{e.getMessage()});
-    }
-    return res;
   }
 
-  /** Methode, die ein SQL-Select ausfuehrt, um die vorhandenen Anfangsbuchstaben zu finden
-   * @param context 
-   * @param nameGroupByAttr Von diesem Attribut werden die Initialen gesucht
-   * @param filter Aus diesem View wird selektiert (Tabelle tut es auch), dabei wird es auch als Filter benutzt.
-   * @return Liste der vorhandenen Anfangsbuchstaben 
-   * @throws OBException
-   */
-  public static HashSet<String> findInitials(OBContext context,
-                                             String nameGroupByAttr,
-                                             OBObject filter) throws OBException {
-    return findInitials(context, nameGroupByAttr, filter.getWhereClauseFromFilter(null, filter.getCaseSensitive()), filter);
-    
-  }
+  protected String hint = ""; //$NON-NLS-1$
+  public String getHint() {return hint; }
+  public void setHint(String s) { hint=s; }
   
-  /**
-   * Liefert die SQL-Technisch korrekte Substitution, um einen Anfangsbuchsteben in A-Z zu erhalten
-   * @param nameGroupByAttr Spalte, deren Anfangsbuchstabe gesucht wird
-   * @return Komplizierten sql-Teilstring.
-   */
-  public static String getFirstLetterSQL(String nameGroupByAttr) {
-    return "UPPER(SUBSTR(utl_raw.cast_to_varchar2(nlssort(SUBSTR(" + nameGroupByAttr + ",1,1), 'nls_sort=''binary_ai''')),1,1))";//$NON-NLS-1$//$NON-NLS-2$
-  }
+  protected OBAttribute[] attribs = null;
+  public OBAttribute[] getAttribs() {return attribs;}
+  public void setAttribs(OBAttribute[] attrs) { attribs = attrs; }
   
-  /** Methode, die ein SQL-Select ausfuehrt, um die vorhandenen Anfangsbuchstaben zu finden
-   * @param context 
-   * @param nameGroupByAttr Von diesem Attribut werden die Initialen gesucht
-   * @param wcClause Einschraenkung
-   * @param view Aus diesem View wird selektiert (Tabelle tut es auch)
-   * @return Liste der vorhandenen Anfangsbuchstaben 
-   * @throws OBException
-   */
-  public static HashSet<String> findInitials(OBContext context,
-                                             String nameGroupByAttr,
-                                             String wcClause,
-                                             OBObject view) throws OBException {
-    String sqlStr = "SELECT DISTINCT " + getFirstLetterSQL(nameGroupByAttr) + " AS ini FROM " +  //$NON-NLS-1$  //$NON-NLS-2$ 
-                    OBDriver.getTableName(context,context.getSchema(view.getProjectSchema()),
-                                          view.getSQLName()) +
-                    " " + wcClause +  //$NON-NLS-1$
-                    " ORDER BY 1";//$NON-NLS-1$ 
-    HashSet<String> res = new HashSet<String>();
-    String sqlString = replaceProjectSchemata(context,sqlStr ); 
-    logger.debug(XynaContextFactory.getSessionData(context) + 
-                 view.getTableName()+": "+sqlString); //$NON-NLS-1$
-    // FIXME Das muesste es auch mit Prepared Statements geben
-    Statement stmt=null;
-    OBConnectionInterface corCon= context.getDataConnection();
-    try {
-      if (view instanceof OBDBObject) {
-        corCon = ((OBDBObject) view).getCorrectConnection(context);
-      }
-      stmt = corCon.createStatement();
-      ResultSet rs = stmt.executeQuery(sqlString);
-      while(!corCon.isClosed() && 
-            rs.next()) {
-        String initial = rs.getString(1);
-        // nur A-Z 
-        if (initial!=null && initial.compareTo("A")>=0 && initial.compareTo("Z")<=0) {//$NON-NLS-1$//$NON-NLS-2$
-          res.add(initial);
-        }
-      }
-      stmt.close();
-    }
-    catch (SQLException e) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error finding initials", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) stmt.close();
-      }
-      catch(Exception exp) {
-        //System.exit(1);
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-        throw new OBException(OBException.OBErrorNumber.sqlFatalException); 
-      }
-      String tmpStr = handleSQLException(context,e, corCon);
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[] {e.getMessage() + ": "+ tmpStr}); //$NON-NLS-1$
-    }
-    catch( Exception e ) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error finding initials", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) stmt.close();
-      }
-      catch(Exception exp) {
-        //System.exit(1);
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-        throw new OBException(OBException.OBErrorNumber.sqlFatalException); 
-      }
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[]{e.getMessage()});
-    }
-    return res;
-  }
+  /** Hoechstzahl selektierter Datensaetze, wenn nichts anderes angegeben wird */
+  public final static int INFINITE_ROWS = Integer.MAX_VALUE;
 
-  // ---------------------------------------------------------------------------
-  // ------- Methoden speziell fuer die count-Abfragen -------------------------
-  // ---------------------------------------------------------------------------
-
-  /** Methode, die ein SQL-Select count(*) ausfuehrt
-   * @param context
-      @param example Beispielobjekt, benoetigt fuer Typ-Informationen
-      @param sqlStringIn SQL-Statement
-      @return Anzahl der gefundenen Datensaetze
-   * @throws OBException
-   */
-  private static int executeCountStatement(OBContext context, 
-                                           OBObject example,
-                                           String sqlStringIn) throws OBException {
-    String sqlString = replaceProjectSchemata(context,sqlStringIn);
-    logger.debug(XynaContextFactory.getSessionData(context) + 
-                 example.getTableName()+" : "+sqlString); //$NON-NLS-1$ 
-    Statement stmt = null;
-    OBConnectionInterface corCon = context.getDataConnection();
-    try {
-      if (example instanceof OBDBObject) {
-        corCon = ((OBDBObject) example).getCorrectConnection(context);
-      }
-      stmt = corCon.createStatement();
-      ResultSet rs = stmt.executeQuery(sqlString);
-      int count = -1;
-      if (rs.next()) {
-        count = rs.getInt(1);
-      }
-      stmt.close();
-      return count;
-    }
-    catch (SQLException e) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error executing count", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) {
-          stmt.close();
-        }
-      }
-      catch (Exception exp) {
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-      }
-      throw new OBException(OBException.OBErrorNumber.sqlException1, 
-                            new String[]{handleSQLException(context,e, corCon)});
-    }
-    catch (Exception e) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error executing count", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) {
-          stmt.close();
-        }
-      }
-      catch (Exception exp) {
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-        throw new OBException(OBException.OBErrorNumber.sqlFatalException); 
-      }
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[]{e.getMessage()});
-    }
-  }
-
-  /** Methode, die ein SQL-Select count(*) ausfuehrt
-   * @param context
-      @param example Beispielobjekt, benoetigt fuer Typ-Informationen
-      @param sqlStringIn SQL-Statement
-      @return Anzahl der gefundenen Datensaetze
-   * @throws OBException
-   */
-  private static int executePreparedCountStatement(OBContext context, 
-                                                   OBObject example,
-                                                   String sqlStringIn,
-                                                   ArrayList<String> replArray) throws OBException {
-    String sqlString = replaceProjectSchemata(context,sqlStringIn);
-    logger.debug(XynaContextFactory.getSessionData(context) + 
-                 example.getTableName()+" : "+getPreparedStatementStringForDebug(sqlString, replArray, null, OBAttribute.NULL, -1, new OBAttribute[0])); //$NON-NLS-1$ 
-    PreparedStatement stmt = null;
-    OBConnectionInterface corCon = context.getDataConnection();
-    try {
-      if (example instanceof OBDBObject) {
-        corCon = ((OBDBObject) example).getCorrectConnection(context);
-      }
-      stmt = corCon.prepareStatement(sqlString);
-      for (int i = 0; replArray!=null &&  i < replArray.size(); i++) {
-        stmt.setString(i+1, replArray.get(i));
-      }
-      ResultSet rs = stmt.executeQuery();
-      int count = -1;
-      if (rs.next()) {
-        count = rs.getInt(1);
-      }
-      stmt.close();
-      return count;
-    }
-    catch (SQLException e) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error executing count", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) {
-          stmt.close();
-        }
-      }
-      catch (Exception exp) {
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-      }
-      throw new OBException(OBException.OBErrorNumber.sqlException1, 
-                            new String[]{handleSQLException(context,e, corCon)});
-    }
-    catch (Exception e) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error executing count", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) {
-          stmt.close();
-        }
-      }
-      catch (Exception exp) {
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-        throw new OBException(OBException.OBErrorNumber.sqlFatalException); 
-      }
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[]{e.getMessage()});
-    }
-  }
-
-  /** Methode, die das Aktuelle Datum der DB erfragt
-   * @param context
-     @param format Format, in dem die Zeit geliefert werden soll
-     @return Anzahl der gefundenen Datensaetze
-   * @throws OBException
-  */
-  public static String getCurrentTime(OBContext context, 
-                                      String format) throws OBException {
-    Statement stmt = null;
-    String sqlString = "SELECT TO_CHAR(sysdate,'"+format+"') FROM DUAL"; //$NON-NLS-1$ //$NON-NLS-2$
-    try {
-      stmt = context.getDataConnection().createStatement();
-      ResultSet rs = stmt.executeQuery(sqlString);
-      String ct = ""; //$NON-NLS-1$
-      if (rs.next()) {
-        ct = rs.getString(1);
-      }
-      stmt.close();
-      return ct;
-    }
-    catch (SQLException e) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error getting current time", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) {
-          stmt.close();
-        }
-      }
-      catch (Exception exp) {
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-        throw new OBException(OBException.OBErrorNumber.sqlFatalException); 
-      }
-      throw new OBException(OBException.OBErrorNumber.sqlException1, 
-                            new String[]{handleSQLException(context,e, context.getDataConnection())});
-    }
-    catch (Exception e) {
-      logger.error(XynaContextFactory.getSessionData(context) + 
-                   "error getting current time", e);//$NON-NLS-1$
-      try {
-        if (stmt!=null) {
-          stmt.close();
-        }
-      }
-      catch (Exception exp) {
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error closing statement", exp);//$NON-NLS-1$
-        throw new OBException(OBException.OBErrorNumber.sqlFatalException); 
-      }
-      throw new OBException(OBException.OBErrorNumber.sqlException1, new String[]{e.getMessage()});
-    }
-  }
-
+  protected int maxRowsSelect = INFINITE_ROWS;
+  public int getMaxRowsSelect() {return maxRowsSelect; }
+  public void setMaxRowsSelect(int i) { maxRowsSelect=i; }
+  
  
-  // ---------------------------------------------------------------------------
-  // ------- SQL-Hilfsmethoden / Exception-Handling ----------------------------
-  // ---------------------------------------------------------------------------
-  
-  
-  /** 
-   * Methode zur globalen Fehlerbehandlung. 
-   * Hier werden die Oracle-Fehlermeldungen in eine lesbarere Form uebersetzt.
-   * @param context Durchzureichendes Context-Objekt
-   * @param e Die zu behandelnde Exception
-   * @param con Connection zur Datenbank
-   * @return String fuer die Ausgabe in einer umgewandelten Form
-   * @throws OBException
-   */
-  public static final String handleSQLException(OBContext context, SQLException e, OBConnectionInterface con) throws OBException {
-    String back = ""; //$NON-NLS-1$
-    if (e.getErrorCode()==1) {
-      // unique constraint abfangen
-      back = handleUnique(context, e, con);
-    }
-    else if (e.getErrorCode()==1400) {
-      // not null constraint abfangen
-      back = handleNotNull(context, e, con);
-    }
-    else if (e.getErrorCode()==1401 || e.getErrorCode()==12899) {
-      // insertet value too large for column
-      back = context.getMessageGenerator().generateOraMessage(OBException.OBErrorNumber.insertedValueToLarge);
-    }
-    else if (e.getErrorCode()==2091) {
-      // Transaktion wurde zurueckgesetzt, kommt bei Deferable-Constraints vor
-      back = handleTransaktionsRollback(context, e, con);
-    }
-    else if (e.getErrorCode()==2290) {
-      // check Constraint
-      back = handleCheck(context, e, con);
-    }
-    else if (e.getErrorCode()==2292) {
-      // child Record found
-      back = handleChildRecord(context, e, con);
-    }
-    else if (e.getErrorCode()==2291) {
-      // parent Record not found
-      back = handleParentRecord(context, e, con);
-    }
-    else if (e.getErrorCode()==28 || e.getErrorCode()==1012) {
-      // session killed
-      back = handleConnectionLost(e);
-    }
-    else if (e.getErrorCode()==1031) {
-      back = "Missing rights"; //$NON-NLS-1$
-    }
-    else {
-      back = e.getMessage() + "\nStatus: " + e.getSQLState() + "\nCode: " + e.getErrorCode() + back; //$NON-NLS-1$ //$NON-NLS-2$
-    }
-    return back;
-  }
-
-
-  /** Wird von handleSQLException fuer ORA-00001 - Meldungen benutzt. Ermittelt die Namen der verletzten
-      Constraints und baut diese in eine Fehlermeldung ein.
-   * @param context Durchzureichendes Context-Objekt
-   * @param e Die zu behandelnde Exception
-   * @param con Connection zur Datenbank
-      @return String fuer die Ausgabe in einer umgewandelten Form
-   * @throws OBException
-  */
-  private static String handleUnique(OBContext context, SQLException e, OBConnectionInterface con) throws OBException {
-    String help = e.getMessage();
-    String constrName = help.substring(help.indexOf(".") + 1, help.indexOf(")")); //$NON-NLS-1$ //$NON-NLS-2$
-
-    String back = context.getMessageGenerator().generateMessage(constrName, con);
-
-    // try to get the column_names
-    if (back.equals("")) { //$NON-NLS-1$
-      Statement stmt = null;
-      try {
-        stmt = con.createStatement();
-        // TODO : der SELECT muss noch fuer ein Schema eingegrenzt werden
-        String sqlString = "SELECT column_name FROM all_cons_columns WHERE constraint_name = '"+constrName+ "'"; //$NON-NLS-1$ //$NON-NLS-2$
-        ResultSet rs = stmt.executeQuery(sqlString);
-        String helpBack = ""; //$NON-NLS-1$
-        int count = 0;
-        while (rs.next()) {
-          if (count != 0) {
-            helpBack = helpBack + "," + rs.getString(1); //$NON-NLS-1$
-          }
-          else {
-            helpBack = rs.getString(1);
-          }
-          count++;
-        }
-        if (count==0) {
-          back = OBConstants.UNIQUE_CONSTRAINT + "\n"; //$NON-NLS-1$
-        }
-        else if (count==1) {
-          back = OBConstants.FIELD_NOT_UNIQUE + " " + helpBack; //$NON-NLS-1$
-        }
-        else {
-          back = OBConstants.FIELDS_NOT_UNIQUE + " " + helpBack; //$NON-NLS-1$
-        }
-        back= back+"\n"+context.getMessageGenerator().generateMessage(constrName); //$NON-NLS-1$
-      }
-      catch (Exception ex) {
-        logger.error(XynaContextFactory.getSessionData(context) + 
-                     "error handleUnique", ex);//$NON-NLS-1$
-      }
-      finally {
-        try {
-          if (stmt!=null) stmt.close();
-        }
-        catch (Exception ex) {
-          logger.error(XynaContextFactory.getSessionData(context) + 
-                       "error closing statement", ex);//$NON-NLS-1$
-        }
-      }
-    }
-    return back;
+  public Object getObject() {
+    return null;
   }
   
-
-  /** Wird von handleSQLException fuer ORA-01400 - Meldungen benutzt. Ermittelt die Namen des verletzten
-      Constraints und baut diesen in eine Fehlermeldung ein.
-   * @param context Durchzureichendes Context-Objekt
-   * @param e Die zu behandelnde Exception
-   * @param con Connection zur Datenbank
-      @return String fuer die Ausgabe in einer umgewandelten Form
-   * @throws OBException
-  */
-  private static String handleNotNull(OBContext context, SQLException e, OBConnectionInterface con)  throws OBException {
-    String msg = e.getMessage(); 
-    String help = msg.substring(msg.indexOf(".") + 2, msg.indexOf(")")-1); //$NON-NLS-1$ //$NON-NLS-2$
-    // constrName hat jetzt die Form TABLE"."COLUMN
-    String constrName = help.substring(0,help.indexOf("\""))+"_" + //$NON-NLS-1$ //$NON-NLS-2$
-                        help.substring(help.indexOf("\"")+3);  //$NON-NLS-1$
-
-    String back = context.getMessageGenerator().generateMessage(constrName, con);
-
-    // try to get the column_names
-    if (back.equals("")) { //$NON-NLS-1$
-      back = OBConstants.FIELD_NOT_NULL +":  "+ help.replace('"', ' '); //$NON-NLS-1$
-    }
-    return back;
-  }
-
- 
-  /** Wird von handleSQLException fuer ORA-01400 - Meldungen benutzt. Ermittelt die Namen des verletzten
-      Constraints und baut diesen in eine Fehlermeldung ein.
-      @param e Die zu behandelnde Exception
-      @param con Connection zur Datenbank
-      @return String fuer die Ausgabe in einer umgewandelten Form
-   * @throws OBException
-  */
-  private static String handleConnectionLost(SQLException e)  throws OBException {
-    logger.debug("handleConnectionLost",e);//$NON-NLS-1$
-    return OBConstants.CONNECTION_LOST;
-  }
-
-  /** 
-   * Wird von handleSQLException fuer ORA-02091 - Meldungen benutzt. 
-   * Ermittelt die Namen des verletzten Constraints und baut diesen in eine Fehlermeldung ein.
-   * @param context Durchzureichendes Context-Objekt
-   * @param e Die zu behandelnde Exception
-   * @param con Connection zur Datenbank
-   * @return String fuer die Ausgabe in einer umgewandelten Form
-   * @throws OBException
-   */
-  private static String handleTransaktionsRollback(OBContext context, SQLException e, OBConnectionInterface con)  throws OBException {
-    String s = e.getMessage();
-    int secORA=s.indexOf("ORA-", 5); //$NON-NLS-1$
-    String secOraMsg=s.substring(secORA);
-
-    int vendorNr=Integer.parseInt(secOraMsg.replaceFirst("ORA-", "").substring(0,5)); //$NON-NLS-1$ //$NON-NLS-2$
-    secOraMsg=secOraMsg.replaceFirst("ORA-......", ""); //$NON-NLS-1$ //$NON-NLS-2$
-    
-    SQLException secExp=new SQLException(secOraMsg, "", vendorNr); //$NON-NLS-1$
-    String back = "DB-Transaktion wird zurueckgesetzt.\n" + handleSQLException(context, secExp, con); //$NON-NLS-1$
-
-    return back;
-  }
-
-
-  /** Wird von handleSQLException fuer ORA-02290 - Meldungen benutzt. Ermittelt die Namen des verletzten
-      Constraints und baut diesen in eine Fehlermeldung ein.
-   * @param context Durchzureichendes Context-Objekt
-   * @param e Die zu behandelnde Exception
-   * @param con Connection zur Datenbank
-      @return String fuer die Ausgabe in einer umgewandelten Form
-   * @throws OBException
-  */
-  private static String handleCheck(OBContext context, SQLException e, OBConnectionInterface con)  throws OBException {
-    String s = e.getMessage();
-    String constrName = s.substring(s.indexOf(".") + 1 , s.indexOf(")")); //$NON-NLS-1$ //$NON-NLS-2$
-    String back = context.getMessageGenerator().generateMessage(constrName, con);
-
-    if (back.equals("")) { //$NON-NLS-1$
-      back = context.getMessageGenerator().generateMessage(constrName);
-    }
-    return back;
-  }
-
-  /** Wird von handleSQLException fuer ORA-02292 - Meldungen benutzt. Ermittelt die Namen des verletzten
-      Constraints und baut diesen in eine Fehlermeldung ein.
-   * @param context Durchzureichendes Context-Objekt
-   * @param e Die zu behandelnde Exception
-   * @param con Connection zur Datenbank
-      @return String fuer die Ausgabe in einer umgewandelten Form
-   * @throws OBException
-  */
-  private static String handleChildRecord(OBContext context, SQLException e, OBConnectionInterface con)  throws OBException {
-    String s = e.getMessage();
-    String constrName = s.substring(s.indexOf(".") + 1 , s.indexOf(")")); //$NON-NLS-1$ //$NON-NLS-2$
-    String back = context.getMessageGenerator().generateMessage(constrName, con);
-
-    if (back.equals("")) { //$NON-NLS-1$
-      back = context.getMessageGenerator().generateMessage(constrName);
-    }
-    return back;
-  }
-
-  /** Wird von handleSQLException fuer ORA-02291 - Meldungen benutzt. Ermittelt die Namen des verletzten
-      Constraints und baut diesen in eine Fehlermeldung ein.
-   * @param context Durchzureichendes Context-Objekt
-   * @param e Die zu behandelnde Exception
-   * @param con Connection zur Datenbank
-      @return String fuer die Ausgabe in einer umgewandelten Form
-   * @throws OBException
-  */
-  private static String handleParentRecord(OBContext context, SQLException e, OBConnectionInterface con)  throws OBException {
-    String s = e.getMessage();
-    String constrName = s.substring(s.indexOf(".") + 1 , s.indexOf(")")); //$NON-NLS-1$ //$NON-NLS-2$
-    String back = context.getMessageGenerator().generateMessage(constrName, con);
-
-    if (back.equals("")) { //$NON-NLS-1$
-      back = context.getMessageGenerator().generateMessage(constrName);
-    }
-    return back;
+  /* derzeit nicht eingesetzt */
+  public String isValueValid(String p_attribKey_p, String p_attribValue_p) {
+    return null;
   }
   
   /**
-   *
-   * Die urspruengliche Methode wurde in _executeSqlStatement umbenannt.
-   * @param context
-   * @param example
-   * @param sqlString
-   * @param orderBy
-   * @param ignoreFirstLines
-   * @param maxRows
-   * @param attribs
-   * @return Liste von OBObjects
-   * @throws OBException
+   * Baut aus einem OBObject einen String, der selbiges repraesentiert
+   * @param indent Einrueckung
+   * @param ignoreList Liste der zu *nenden Werte
+   * @return String Repraesentation des Objektes
+   * @throws OBException Fehler
    */
-  public static <E extends OBObject> OBListObject<E> executeSqlStatement(OBContext context,
-                                                                         E example, 
-                                                                         String[] sqlString,
-                                                                         String orderBy,
-                                                                         int ignoreFirstLines,
-                                                                         int maxRows,
-                                                                         OBAttribute[] attribs) throws OBException {
-    return _executeSqlStatement(context, example, sqlString, orderBy, ignoreFirstLines, maxRows, attribs);
+  public String convertToString(String indent, String[] ignoreList) throws OBException {
+    StringBuilder sb = new StringBuilder();
+    for(int i=0; i<attArr.length; i++ ) {
+      sb.append(indent).append(attArr[i].getName()).append("=").append(OBUtils.hideValue(attArr[i].getName(), attArr[i].getValue(), ignoreList)).append("\n"); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+    String details = sb.toString();
+    // letztes "\n" weg
+    if( details.length() > 1 ) {
+      details = details.substring(0,details.length()-1);
+    }
+
+    return sb.toString();
   }
-  
-  
-  
-  /**
-   * Behandlung der dataPrivacyClass:
-   * Falls im sqlString ein 'dataPrivacyClass' Attribut vorhanden ist, wird die WHERE Clause
-   * um ein 'dataPrivacyClass=...' bzw. dataPrivacyClass IN (...)' entsprechend erweitert.
-   * Der oder die dataPrivacyClass Werte kommen dabei aus dem Staff Objekt und werden
-   * in einem OBContext Attribut transportiert.
-   * @param context 
-   * @param sqlString 
-   * @return
-   */
-  public static String[] handleDataPrivacy(OBContext context, String[] sqlString) {
-    if (!sqlString[0].contains(DPC_LIST) && sqlString[0].contains(DPC)) {  // weak: vielleicht besser auf das Gen-Objekt und dessen Attribute zurueckgreifen
-      Object dpcList = null;
-      dpcList = context.getAttribute(DPC_LIST);  // besitzt der OBContext ein solches Attribut? (es sind die "Leserechte" des Staff Objekts)
-      if (null != dpcList) {
-        for (int i = 0; i < sqlString.length; i++) {
-          Matcher m = oneisonePattern.matcher(sqlString[i]);  // WHERE 1 = 1  vorhanden? dann durch dataPrivacy ersetzen
-          if (m.find()) {
-            String dpcWhere = getWhereClauseFromStringlist(DPC, dpcList.toString());
-            sqlString[i] = m.replaceFirst(dpcWhere);
-          }
-          else {  // kein WHERE 1 = 1
-            m = wherePattern.matcher(sqlString[i]);  // wir suchen das erste ... WHERE ...
-            if (m.find()) {
-              String dpcWhere = getWhereClauseFromStringlist(DPC, dpcList.toString()) + " AND ";
-              sqlString[i] = m.replaceFirst(dpcWhere);  // wir ersetzen das 'WHERE ' durch die neue WHERE Clause und ein verbindendes AND
-            }
-          } 
-        }
-      }
-    }
-    return sqlString;
+
+  public boolean getCaseSensitive() {
+    return _caseSensitive;
   }
-  
-  
-  /**
-   * Liefert eine WHERE Clause:
-   * 
-   * @param attributeName
-   * @param stringList
-   * @return
-   */
-  public static String getWhereClauseFromStringlist(String attributeName, String stringList) {
-    if (null == attributeName || attributeName.length() < 1 || null == stringList || stringList.length() < 1) {
-      return "WHERE 1=1 ";  // keine Einschraenkung
-    }
-    String[] a = stringList.split(";");
-    ArrayList<String> l = new ArrayList<String>();
-    for (String v: a) { if (v.length() > 0) l.add(v); }
-    if (l.size() == 1) {  // genau ein Wert
-      return String.format("WHERE %s='%s' ", attributeName, l.get(0));
-    }
-    StringBuffer sb = new StringBuffer("");
-    for (int i = 0; i < l.size(); i++) {
-      if (i > 0) sb.append(",");
-      sb.append("'").append(l.get(i)).append("'");
-    }
-    return String.format("WHERE %s IN (%s) ", attributeName, sb.toString());
+
+  public void setCaseSensitive(boolean _caseSensitive) {
+    this._caseSensitive = _caseSensitive;
   }
 }
-
