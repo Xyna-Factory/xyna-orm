@@ -2,6 +2,7 @@
 * java (11)
 * ant (1.10)
 * zip
+* lib maven-resolver-ant-tasks (1.15)
 
 ### lib maven-resolver-ant-tasks
 
