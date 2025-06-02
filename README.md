@@ -30,7 +30,7 @@ Usage: ./install_lib.sh
 build a delivery item with the foloowing command:
 
 ```
-ant build
+ant
 ```
 
 The output xynaorm-<VERSION>.zip ist found in the directory build
