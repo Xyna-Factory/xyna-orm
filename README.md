@@ -24,7 +24,6 @@ Usage: ./install_lib.sh
 
 # Example: Install the maven-resolver-ant-tasks version 1.5.2
 ./install_lib.sh -v 1.5.2
-
 ```
 
 ## Build
