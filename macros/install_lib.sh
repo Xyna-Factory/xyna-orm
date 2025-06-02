@@ -52,10 +52,6 @@ if [[ -z ${MAVEN_RESOLVER_ANT_TASKS_VERSION} ]] ; then
   usage
 fi
 if [[ ! -d ${TARGET_DIR} ]] ; then
-  echo "Error: ${TARGET_DIR} not exists"
-  exit 1
-fi
-if [[ ! -d ${TARGET_DIR} ]] ; then
   echo "mkdir -p ${TARGET_DIR}"
   mkdir -p ${TARGET_DIR}
 fi
