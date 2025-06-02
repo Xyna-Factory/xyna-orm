@@ -5,9 +5,9 @@
 
 ### lib maven-resolver-ant-tasks
 
-The lib maven-resolver-ant-tasks is required and must be located in the macros/lib directory.
+The lib maven-resolver-ant-tasks is required and must be located in the macros/lib or the ${ANT_HOME}/lib directory.
 
-to install the macros/lib you can use the script macros/install_lib.sh
+to install the lib lib maven-resolver-ant-tasks in the local macros/lib you can use the script macros/install_lib.sh
 
 ```
 cd macros
