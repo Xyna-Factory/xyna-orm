@@ -16,64 +16,31 @@
  * limitations under the License.
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 -->
-<project name="xynaorm-transformatoren" default="build" basedir=".">
+<project name="xynaorm-transformators" default="build" basedir=".">
 
-  <property name="release.number" value="3.0.0.0" />
-  <property name="release.dir" value="release" />
+  <property name="macros.lib.dir" value="../macros/lib" />
+  <import file="../macros/macros.xml" />
+
+  <property file="../release.properties"/>
   <property name="build.dir" value="build" />
-  <property name="project.name" value="xynaorm-transformators" />
+
+  <property name="project.name" value="xynaorm-transformators-${release.number}" />
 
   <target name="build" description="Create build artfact">
-    <!-- build version -->
-    <buildVersion destdir="${build.dir}"
-                  version="${release.number}" />
-    <!-- build zip file -->
-    <zipDeliveryItems srcdir="${build.dir}"
-                      destdir="${release.dir}"
-                      name="${project.name}-${release.number}" />
-    <!-- clean up -->
     <delete dir="${build.dir}" />
+    <mkdir dir="${build.dir}/${project.name}"/>
+    <!-- build version -->
+    <copy todir="${build.dir}/${project.name}">
+      <fileset dir="${basedir}">
+        <include name="**/*.xsl" />
+      </fileset>
+    </copy>
+    <zip destfile="${build.dir}/${project.name}.zip">
+      <zipfileset dir="${build.dir}" excludes="${project.name}/**/*.sh" />
+      <zipfileset dir="${build.dir}"
+                  includes="${project.name}/**/*.sh"
+                  filemode="755" />
+    </zip>
   </target>
-
-  <!-- = = = = = = = = = = = = = = = = =
-	          macrodef: buildVersion       
-	         = = = = = = = = = = = = = = = = = -->
-  <macrodef name="buildVersion">
-    <attribute name="version" description="Version number of the build." />
-    <attribute name="basedir"
-               default="${basedir}"
-               description="Directory of project." />
-    <attribute name="destdir" description="Directory to store the build." />
-    <sequential>
-      <copy todir="@{destdir}">
-        <fileset dir="@{basedir}">
-          <include name="**/*.xsl" />
-        </fileset>
-      </copy>
-    </sequential>
-  </macrodef>
-
-  <!-- = = = = = = = = = = = = = = = = =
-          macrodef: zipDeliveryItems
-         = = = = = = = = = = = = = = = = =
--->
-  <macrodef name="zipDeliveryItems" description="Zips">
-    <attribute name="name" description="Name of the delivery item" />
-    <attribute name="srcdir"
-               default="${build.dir}"
-               description="All files from this directory are zipped into an archive" />
-    <attribute name="destdir"
-               default="${delivery.dir}"
-               description="Directory where the delivery item will be stored" />
-    <sequential>
-      <mkdir dir="@{destdir}" />
-      <zip destfile="@{destdir}/@{name}.zip">
-        <zipfileset dir="@{srcdir}" excludes="**/*.sh" />
-        <zipfileset dir="@{srcdir}"
-                    includes="**/*.sh"
-                    filemode="755" />
-      </zip>
-    </sequential>
-  </macrodef>
 
 </project>
