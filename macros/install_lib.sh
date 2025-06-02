@@ -51,6 +51,14 @@ done
 if [[ -z ${MAVEN_RESOLVER_ANT_TASKS_VERSION} ]] ; then
   usage
 fi
+if [[ ! -d ${TARGET_DIR} ]] ; then
+  echo "Error: ${TARGET_DIR} not exists"
+  exit 1
+fi
+if [[ ! -d ${TARGET_DIR} ]] ; then
+  echo "mkdir -p ${TARGET_DIR}"
+  mkdir -p ${TARGET_DIR}
+fi
 
 URL=${REPO_BASE_URL}/${MAVEN_RESOLVER_ANT_TASKS_VERSION}/maven-resolver-ant-tasks-${MAVEN_RESOLVER_ANT_TASKS_VERSION}-uber.jar
 TARGET_FILE=${TARGET_DIR}/maven-resolver-ant-tasks-${MAVEN_RESOLVER_ANT_TASKS_VERSION}-uber.jar
