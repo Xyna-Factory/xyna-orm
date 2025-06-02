@@ -1,8 +1,9 @@
 ## Requirements
-* java (11)
-* ant (1.10)
+* java version 11
+* ant version 1.10
+* lib maven-resolver-ant-tasks version 1.15
 * zip
-* lib maven-resolver-ant-tasks (1.15)
+
 
 ### lib maven-resolver-ant-tasks
 
