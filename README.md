@@ -27,6 +27,10 @@ Usage: ./install_lib.sh
 
 ## Build
 
+build a delivery item with the foloowing command:
+
 ```
 ant build
 ```
+
+The output xynaorm-<VERSION>.zip ist found in the directory build
