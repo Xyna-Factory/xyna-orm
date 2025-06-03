@@ -18,7 +18,7 @@
 set -e
 
 MAVEN_RESOLVER_ANT_TASKS_VERSION=""
-TARGET_DIR="lib"
+TARGET_DIR=" ~/.ant/lib"
 REPO_BASE_URL=https://repo.maven.apache.org/maven2/org/apache/maven/resolver/maven-resolver-ant-tasks
 HTTP_CODE_OK=200
 
