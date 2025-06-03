@@ -18,7 +18,7 @@
 set -e
 
 MAVEN_RESOLVER_ANT_TASKS_VERSION=""
-TARGET_DIR=" ~/.ant/lib"
+TARGET_DIR="${HOME}/.ant/lib"
 REPO_BASE_URL=https://repo.maven.apache.org/maven2/org/apache/maven/resolver/maven-resolver-ant-tasks
 HTTP_CODE_OK=200
 
@@ -27,7 +27,7 @@ usage() {
   echo " -h : print this help"
   echo " -v MAVEN_RESOLVER_ANT_TASKS_VERSION : Version of the maven-resolver-ant-tasks-VERSION-uber.jar"
   echo "                                       See: ${REPO_BASE_URL}"
-  echo " -o TARGET_DIR                       : target dir (default value: ~/.ant/lib)"
+  echo " -o TARGET_DIR                       : target dir (default value: ${TARGET_DIR}"
   exit 1
 }
 
