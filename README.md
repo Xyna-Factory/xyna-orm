@@ -31,4 +31,4 @@ build a delivery item with the foloowing command:
 ant
 ```
 
-The output xynaorm-<VERSION>.zip ist found in the directory build
+The output xynaorm-VERSION.zip ist found in the directory build
