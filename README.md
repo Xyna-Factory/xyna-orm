@@ -17,7 +17,7 @@ Usage: ./install_lib.sh
  -h : print this help
  -v MAVEN_RESOLVER_ANT_TASKS_VERSION : Version of the maven-resolver-ant-tasks-VERSION-uber.jar
                                        See: https://repo.maven.apache.org/maven2/org/apache/maven/resolver/maven-resolver-ant-tasks
- -o TARGET_DIR                       : target dir (default value: ~/.ant/lib)
+ -o TARGET_DIR                       : target dir (default value: ${HOME}/.ant/lib)
 
 # Example: Install the maven-resolver-ant-tasks version 1.5.2
 ./install_lib.sh -v 1.5.2
