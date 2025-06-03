@@ -27,7 +27,7 @@ usage() {
   echo " -h : print this help"
   echo " -v MAVEN_RESOLVER_ANT_TASKS_VERSION : Version of the maven-resolver-ant-tasks-VERSION-uber.jar"
   echo "                                       See: ${REPO_BASE_URL}"
-  echo " -o TARGET_DIR                       : target dir (default value: lib)"
+  echo " -o TARGET_DIR                       : target dir (default value: ~/.ant/lib)"
   exit 1
 }
 
