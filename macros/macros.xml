@@ -21,8 +21,7 @@
   <property name="macros.lib.dir" value="${basedir}/lib" />
   
   <!-- Maven Resolver Ant Task - http://maven.apache.org/resolver-ant-tasks/ -->
-  <taskdef uri="antlib:org.apache.maven.resolver.ant" resource="org/apache/maven/resolver/ant/antlib.xml">
-  </taskdef>
+  <taskdef uri="antlib:org.apache.maven.resolver.ant" resource="org/apache/maven/resolver/ant/antlib.xml" />
 
   <!-- ================================= 
        macro: compile
