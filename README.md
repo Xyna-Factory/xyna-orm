@@ -7,7 +7,7 @@
 
 ### lib maven-resolver-ant-tasks
 
-The lib maven-resolver-ant-tasks is required and must be located in the directory ~/.ant/lib
+The lib maven-resolver-ant-tasks is required and must be located in the directory ${HOME}/.ant/lib
 to install the lib maven-resolver-ant-tasks you can use the script install_lib.sh
 
 ```
