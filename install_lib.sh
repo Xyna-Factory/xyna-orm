@@ -19,9 +19,9 @@ set -e
 
 MAVEN_RESOLVER_ANT_TASKS_VERSION=""
 TARGET_DIR="${HOME}/.ant/lib"
-REPO_BASE_URL=https://repo.maven.apache.org/maven2/org/apache/maven/resolver/maven-resolver-ant-tasks
+REPO_BASE_URL=https://repo1.maven.org/maven2/org/apache/maven/resolver/maven-resolver-ant-tasks
 HTTP_CODE_OK=200
-
+              
 usage() {
   echo "Usage: $0"
   echo " -h : print this help"
