@@ -16,7 +16,7 @@
  * limitations under the License.
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 -->
-<project name="xynaorm-transformators" default="build" basedir=".">
+<project name="xynaorm-mysql-transformators" default="build" basedir=".">
 
   <property name="macros.lib.dir" value="../macros/lib" />
   <import file="../macros/macros.xml" />
@@ -24,7 +24,7 @@
   <property file="../release.properties"/>
   <property name="build.dir" value="build" />
 
-  <property name="project.name" value="xynaorm-transformators-${release.number}" />
+  <property name="project.name" value="xynaorm-mysql-transformators-${release.number}" />
 
   <target name="build" description="Create build artifact">
     <delete dir="${build.dir}" />

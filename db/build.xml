@@ -16,21 +16,41 @@
  * limitations under the License.
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 -->
-<project name="xynaorm-db" basedir=".">
+<project name="xynaorm-db" default="build" basedir=".">
 
-  <!--Next release version for the archive file-->
-  <property name="release.number" value="2.9.4.0"/>
-  <!--Name of the utils project-->
-  <property name="utils.name" value="db"/>
+  <property name="macros.lib.dir" value="../macros/lib" />
+  <import file="../macros/macros.xml" />
 
-  <!--override project.name, svn.project-->
-  <property name="project.name" value="xynaorm-${utils.name}" />
-  <property name="svn.project" value="xyna/orm/${utils.name}" />
+  <property file="../release.properties"/>
 
-  <!--Master build file-->
-  <property name="build.file" value="../install/xynautils/masterbuild.xml"/>
+  <property name="project.name" value="xynaorm-db-${release.number}" />
+  <property name="src.dir" value="src" />
+  <property name="classes.dir" value="classes" />
+  <property name="build.dir" value="build" />
+  <property name="lib.dir" value="lib" />
 
-  <!--Import all targets from master build file-->
-  <import file="${build.file}"/>
+  <target name="resolve" description="resolve" >
+    <mkdir dir="${lib.dir}" />
+    <resolve pomFile="${basedir}/pom.xml" dir="${lib.dir}" scopes="" />
+  </target>
+ 
+  <target name="install" depends="build" description="install artifact to maven repository">
+    <install-maven-artifact artifactFile="${build.dir}/${project.name}.jar" pomFile="${basedir}/pom.xml" />
+  </target>
+  
+  <target name="compile" description="compile" >
+    <compile srcdir="${src.dir}" destdir="${classes.dir}" libdir="${lib.dir}" />
+  </target>
+  
+  <target name="build" description="build" depends="resolve,compile">
+    <delete dir="${build.dir}" />
+    <mkdir dir="${build.dir}"/>
+    <jar destfile="${build.dir}/${project.name}.jar" 
+         basedir="${classes.dir}" >
+      <manifest>
+        <attribute name="Version" value="${release.number}" />
+      </manifest>
+    </jar>
+  </target>
 
 </project>

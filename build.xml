@@ -16,25 +16,42 @@
  * limitations under the License.
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 -->
-<project name="xynaorm-transformators" default="build" basedir=".">
+<project name="xyna-orm" default="build" basedir=".">
 
-  <property name="macros.lib.dir" value="../macros/lib" />
-  <import file="../macros/macros.xml" />
-
-  <property file="../release.properties"/>
   <property name="build.dir" value="build" />
+  <property file="release.properties"/>
+  <property name="project.name" value="xynaorm-${release.number}" />
 
-  <property name="project.name" value="xynaorm-transformators-${release.number}" />
+  <target name="build" description="Create build artfact">
+    <ant antfile="common/build.xml" target="install" inheritAll="false" />
+    <ant antfile="db/build.xml" target="build" inheritAll="false" />
+    <ant antfile="transformators/build.xml" target="build" inheritAll="false" />
+    <ant antfile="mysql-transformators/build.xml" target="build" inheritAll="false" />
 
-  <target name="build" description="Create build artifact">
+    <!-- build version -->
     <delete dir="${build.dir}" />
     <mkdir dir="${build.dir}/${project.name}"/>
-    <!-- build version -->
     <copy todir="${build.dir}/${project.name}">
-      <fileset dir="${basedir}">
-        <include name="**/*.xsl" />
+      <fileset dir="common/build">
+        <include name="*.jar" />
       </fileset>
     </copy>
+    <copy todir="${build.dir}/${project.name}">
+      <fileset dir="db/build">
+        <include name="*.jar" />
+      </fileset>
+    </copy>
+    <copy todir="${build.dir}/${project.name}">
+      <fileset dir="transformators/build">
+        <include name="*.zip" />
+      </fileset>
+    </copy>
+    <copy todir="${build.dir}/${project.name}">
+      <fileset dir="mysql-transformators/build">
+        <include name="*.zip" />
+      </fileset>
+    </copy>
+
     <zip destfile="${build.dir}/${project.name}.zip">
       <zipfileset dir="${build.dir}" excludes="${project.name}/**/*.sh" />
       <zipfileset dir="${build.dir}"
